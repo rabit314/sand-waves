@@ -526,17 +526,19 @@
   const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 800);
   camera.position.set(0, 10, -16);
 
+  const isMobile = /Android|webOS|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
   renderer.setSize(innerWidth, innerHeight);
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-  renderer.shadowMap.enabled = true;
+  renderer.setPixelRatio(isMobile ? Math.min(devicePixelRatio, 1.0) : Math.min(devicePixelRatio, 1.5));
+  renderer.shadowMap.enabled = !isMobile;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.05;
   document.body.appendChild(renderer.domElement);
 
   // ============ Sky: Shader Gradient ============
-  const skyGeo = new THREE.SphereGeometry(500, 32, 16);
+  const skyGeo = new THREE.SphereGeometry(500, 16, 8);
   const skyMat = new THREE.ShaderMaterial({
     side: THREE.BackSide,
     uniforms: {
@@ -595,7 +597,7 @@
   const sunLight = new THREE.DirectionalLight(0xfff4d8, 1.7);
   sunLight.position.set(60, 90, 40);
   sunLight.castShadow = true;
-  sunLight.shadow.mapSize.set(2048, 2048);
+  sunLight.shadow.mapSize.set(isMobile ? 512 : 1024, isMobile ? 512 : 1024);
   sunLight.shadow.camera.left = -90;
   sunLight.shadow.camera.right = 90;
   sunLight.shadow.camera.top = 90;
@@ -613,7 +615,7 @@
   scene.add(fillLight);
 
   // ============ Terrain Height Function ============
-  function getTerrainHeight(x, z) {
+  function getTerrainHeightExact(x, z) {
     let h = 0;
     h += Math.sin(x * 0.045) * Math.cos(z * 0.05) * 4.2;
     h += Math.sin(x * 0.09 + 1.0) * Math.cos(z * 0.075 + 0.5) * 1.9;
@@ -627,9 +629,28 @@
     return h;
   }
 
+  const terrainGridSize = 128;
+  const terrainHeightData = [];
+  for (let x = 0; x < terrainGridSize; x++) {
+    terrainHeightData[x] = [];
+    for (let z = 0; z < terrainGridSize; z++) {
+      const worldX = (x / terrainGridSize) * 400 - 200;
+      const worldZ = (z / terrainGridSize) * 400 - 200;
+      terrainHeightData[x][z] = getTerrainHeightExact(worldX, worldZ);
+    }
+  }
+
+  function getTerrainHeight(x, z) {
+    const gx = Math.round((x + 200) / 400 * terrainGridSize);
+    const gz = Math.round((z + 200) / 400 * terrainGridSize);
+    const cx = Math.max(0, Math.min(terrainGridSize - 1, gx));
+    const cz = Math.max(0, Math.min(terrainGridSize - 1, gz));
+    return terrainHeightData[cx][cz];
+  }
+
   // ============ Terrain Mesh ============
   const terrainSize = 400;
-  const terrainSegs = 200;
+  const terrainSegs = 100;
   const terrainGeo = new THREE.PlaneGeometry(terrainSize, terrainSize, terrainSegs, terrainSegs);
   terrainGeo.rotateX(-Math.PI / 2);
 
@@ -654,10 +675,8 @@
   terrainGeo.setAttribute('color', new THREE.Float32BufferAttribute(tColors, 3));
   terrainGeo.computeVertexNormals();
 
-  const terrainMat = new THREE.MeshStandardMaterial({
-    vertexColors: true,
-    roughness: 0.96,
-    metalness: 0.0
+  const terrainMat = new THREE.MeshLambertMaterial({
+    vertexColors: true
   });
   const terrain = new THREE.Mesh(terrainGeo, terrainMat);
   terrain.receiveShadow = true;
@@ -869,7 +888,7 @@
   const mergedRocksGeo = mergeBufferGeometries(rockGeos);
   for (const g of rockGeos) g.dispose();
 
-  const sharedRockMat = new THREE.MeshStandardMaterial({
+  const sharedRockMat = new THREE.MeshLambertMaterial({
     vertexColors: true,
     roughness: 0.95,
     flatShading: true
@@ -906,7 +925,7 @@
   const mergedMesasGeo = mergeBufferGeometries(mesaGeos);
   for (const g of mesaGeos) g.dispose();
 
-  const mesaMat = new THREE.MeshStandardMaterial({
+  const mesaMat = new THREE.MeshLambertMaterial({
     color: 0x8a6c46,
     roughness: 0.96,
     flatShading: true
@@ -929,22 +948,21 @@
       this.turretTurnSpeed = 2.2;
       this.lastFireTime = -10;
       this.fireRate = isEnemy ? 2.8 : 0.55;
-      this.trackWheels = [];
 
       this.build(color);
       scene.add(this.group);
     }
 
     build(color) {
-      const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.78, metalness: 0.15 });
-      const darkMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9, metalness: 0.3 });
-      const barrelMat = new THREE.MeshStandardMaterial({
+      const bodyMat = new THREE.MeshLambertMaterial({ color, roughness: 0.78, metalness: 0.15 });
+      const darkMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a, roughness: 0.9, metalness: 0.3 });
+      const barrelMat = new THREE.MeshLambertMaterial({
         color: new THREE.Color(color).multiplyScalar(0.55),
         roughness: 0.5, metalness: 0.55
       });
-      const detailMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.8 });
-      const wheelMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.7, metalness: 0.4 });
-      const emissiveMat = new THREE.MeshStandardMaterial({ color: 0xff3a3a, emissive: 0xff3a3a, emissiveIntensity: 0.8 });
+      const detailMat = new THREE.MeshLambertMaterial({ color: 0x222222, roughness: 0.8 });
+      const wheelMat = new THREE.MeshLambertMaterial({ color: 0x2a2a2a, roughness: 0.7, metalness: 0.4 });
+      const emissiveMat = new THREE.MeshLambertMaterial({ color: 0xff3a3a, emissive: 0xff3a3a, emissiveIntensity: 0.8 });
 
       const hullMaterials = [bodyMat, darkMat, detailMat, wheelMat];
       const turretMaterials = [bodyMat, darkMat, barrelMat, detailMat, emissiveMat];
@@ -1049,6 +1067,15 @@
       }
     }
 
+    reset() {
+      this.group.visible = true;
+      this.health = this.maxHealth;
+      this.alive = true;
+      this.speed = this.isEnemy ? 4.5 + Math.random() * 2.5 : 8.5;
+      this.velocity = 0;
+      this.lastFireTime = -10;
+    }
+
     setPosition(x, z) {
       this.group.position.x = x;
       this.group.position.z = z;
@@ -1075,8 +1102,6 @@
     }
 
     update(dt) {
-      const wheelRot = this.speed * dt * 3.5;
-      for (const w of this.trackWheels) w.rotation.x += wheelRot;
 
       if (this.marker) {
         this.marker.material.opacity = 0.4 + Math.sin(performance.now() * 0.005) * 0.25;
@@ -1107,13 +1132,20 @@
 
   // ============ Enemy Management ============
   const enemies = [];
+  const deadEnemies = [];
 
   function spawnEnemy() {
     const angle = Math.random() * Math.PI * 2;
     const dist = 55 + Math.random() * 70;
     const x = Math.cos(angle) * dist;
     const z = Math.sin(angle) * dist;
-    const enemy = new Tank(0x9a7848, true);
+    let enemy;
+    if (deadEnemies.length > 0) {
+      enemy = deadEnemies.pop();
+      enemy.reset();
+    } else {
+      enemy = new Tank(0x9a7848, true);
+    }
     enemy.setPosition(x, z);
     enemy.setRotation(Math.atan2(-x, -z));
     enemies.push(enemy);
@@ -1125,7 +1157,7 @@
   const maxPooledShells = 25;
   
   const shellGeo = new THREE.SphereGeometry(0.22, 8, 8);
-  const shellMat = new THREE.MeshStandardMaterial({
+  const shellMat = new THREE.MeshLambertMaterial({
     color: 0xffcc66, emissive: 0xff8800, emissiveIntensity: 2.5
   });
   const shellTrailGeo = new THREE.CylinderGeometry(0.08, 0.18, 2.4, 6);
@@ -1187,7 +1219,7 @@
 
   // ============ Point Light Pool ============
   const lightPool = [];
-  const maxLights = 10;
+  const maxLights = 3;
   for (let i = 0; i < maxLights; i++) {
     const pl = new THREE.PointLight(0xff8800, 0, 10);
     pl.visible = false;
@@ -1258,7 +1290,7 @@
       });
       this.setupInstanceOpacity(this.transparentMat);
 
-      this.debrisMat = new THREE.MeshStandardMaterial({
+      this.debrisMat = new THREE.MeshLambertMaterial({
         color: 0x242424,
         roughness: 0.8,
         flatShading: true
@@ -1268,7 +1300,7 @@
       this.transparentMesh = new THREE.InstancedMesh(sphereGeo, this.transparentMat, this.maxTransparent);
       this.debrisMesh = new THREE.InstancedMesh(boxGeo, this.debrisMat, this.maxDebris);
 
-      this.debrisMesh.castShadow = true;
+      this.debrisMesh.castShadow = false;
       this.debrisMesh.receiveShadow = true;
 
       this.additiveMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -1371,37 +1403,39 @@
     updatePool(pool, instancedMesh, opacityArray, dt, supportsColorAndOpacity) {
       const zeroMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
 
-      for (let i = pool.length - 1; i >= 0; i--) {
+      let writeIndex = 0;
+      for (let i = 0; i < pool.length; i++) {
         const p = pool[i];
         p.life -= dt;
 
-        if (p.life <= 0) {
-          pool.splice(i, 1);
-          continue;
-        }
+        if (p.life > 0) {
+          if (writeIndex !== i) pool[writeIndex] = p;
+          writeIndex++;
 
-        p.position.x += p.velocity.x * dt;
-        p.position.y += p.velocity.y * dt;
-        p.position.z += p.velocity.z * dt;
+          p.position.x += p.velocity.x * dt;
+          p.position.y += p.velocity.y * dt;
+          p.position.z += p.velocity.z * dt;
 
-        if (p.gravity) p.velocity.y += p.gravity * dt;
+          if (p.gravity) p.velocity.y += p.gravity * dt;
 
-        if (p.rotate) {
-          p.rotation.x += p.rotationSpeed.x * dt;
-          p.rotation.y += p.rotationSpeed.y * dt;
-          p.rotation.z += p.rotationSpeed.z * dt;
-        }
+          if (p.rotate) {
+            p.rotation.x += p.rotationSpeed.x * dt;
+            p.rotation.y += p.rotationSpeed.y * dt;
+            p.rotation.z += p.rotationSpeed.z * dt;
+          }
 
-        if (p.bounce) {
-          const groundY = getTerrainHeight(p.position.x, p.position.z) + 0.15;
-          if (p.position.y < groundY) {
-            p.position.y = groundY;
-            p.velocity.y *= -0.35;
-            p.velocity.x *= 0.6;
-            p.velocity.z *= 0.6;
+          if (p.bounce) {
+            const groundY = getTerrainHeight(p.position.x, p.position.z) + 0.15;
+            if (p.position.y < groundY) {
+              p.position.y = groundY;
+              p.velocity.y *= -0.35;
+              p.velocity.x *= 0.6;
+              p.velocity.z *= 0.6;
+            }
           }
         }
       }
+      pool.length = writeIndex;
 
       const activeCount = pool.length;
       const maxCount = instancedMesh.count;
@@ -1958,7 +1992,8 @@
     for (let i = enemies.length - 1; i >= 0; i--) {
       const e = enemies[i];
       if (!e.alive) {
-        scene.remove(e.group);
+        e.group.visible = false;
+        deadEnemies.push(e);
         enemies.splice(i, 1);
         continue;
       }
@@ -2101,8 +2136,7 @@
 
     // Spawn Enemies
     if (gameState.spawning && gameState.enemiesSpawned < gameState.enemiesInWave) {
-      const aliveCount = enemies.filter(e => e.alive).length;
-      if (aliveCount < gameState.maxAlive) {
+      if (aliveEnemyCount < gameState.maxAlive) {
         gameState.spawnDelay -= dt;
         if (gameState.spawnDelay <= 0) {
           spawnEnemy();
@@ -2153,8 +2187,10 @@
     const lookAt = player.group.position.clone();
     lookAt.y += 2;
 
-    camera.position.lerp(idealOffset, Math.min(1, dt * 4.5));
-    camera.lookAt(lookAt);
+    if (!camera.userData.truePos) camera.userData.truePos = camera.position.clone();
+    camera.userData.truePos.lerp(idealOffset, Math.min(1, dt * 4.5));
+    
+    camera.position.copy(camera.userData.truePos);
 
     // Camera Shake
     if (cameraShake > 0) {
@@ -2163,6 +2199,8 @@
       camera.position.z += (Math.random() - 0.5) * cameraShake;
       cameraShake = Math.max(0, cameraShake - dt * 2.5);
     }
+    
+    camera.lookAt(lookAt);
 
     // Minimap
     updateMinimap();
