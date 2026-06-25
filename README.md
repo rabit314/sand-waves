@@ -1,5 +1,7 @@
 # Desert Steel: Operation Dunebreaker
 
+**🕹️ [Play the game live here!](https://rabit314.github.io/sand-waves/)**
+
 A fast-paced, wave-based 3D tank combat game built entirely in a single HTML file using [Three.js](https://threejs.org/). Survive against endless waves of enemy tanks in a sprawling desert environment.
 
 ## Features
