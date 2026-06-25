@@ -1654,7 +1654,9 @@
 
   window.addEventListener('keydown', e => {
     keys[e.code] = true;
-    if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
+    if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ShiftLeft', 'ShiftRight'].includes(e.code)) {
+      e.preventDefault();
+    }
   });
   window.addEventListener('keyup', e => keys[e.code] = false);
 
