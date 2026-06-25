@@ -987,7 +987,9 @@
 
     getBodyDirection() {
       const dir = new THREE.Vector3(0, 0, 1);
-      dir.applyQuaternion(this.group.getWorldQuaternion());
+      const quat = new THREE.Quaternion();
+      this.group.getWorldQuaternion(quat);
+      dir.applyQuaternion(quat);
       dir.y = 0;
       return dir.normalize();
     }
