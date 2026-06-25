@@ -1978,9 +1978,9 @@
 
     if (mouse.down && player.canFire(now)) {
       const muzzlePos = player.getMuzzleWorldPosition();
-      const fireDir = new THREE.Vector3(
-        mouse.worldX - muzzlePos.x, 0, mouse.worldZ - muzzlePos.z
-      ).normalize();
+      const fireDir = raycaster.ray.direction.clone();
+      fireDir.y = THREE.MathUtils.clamp(fireDir.y, -0.3, 0.45);
+      fireDir.normalize();
       spawnShell(muzzlePos, fireDir, player);
       createMuzzleFlash(muzzlePos, fireDir);
       player.fire(now);
@@ -2043,7 +2043,7 @@
         const muzzlePos = e.getMuzzleWorldPosition();
         const fireDir = new THREE.Vector3(
           player.group.position.x - muzzlePos.x,
-          0,
+          (player.group.position.y + 1.5) - muzzlePos.y + distToPlayer * 0.06,
           player.group.position.z - muzzlePos.z
         ).normalize();
         fireDir.x += (Math.random() - 0.5) * 0.06;
@@ -2060,6 +2060,7 @@
       const s = shellPool[i];
       if (!s.active) continue;
 
+      s.velocity.y -= 30 * dt;
       s.mesh.position.x += s.velocity.x * dt;
       s.mesh.position.y += s.velocity.y * dt;
       s.mesh.position.z += s.velocity.z * dt;
