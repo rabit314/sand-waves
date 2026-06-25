@@ -1577,7 +1577,7 @@
     }
 
     spawnPointLight(position, 10 * scale, 28 * scale, 0.22);
-    addCameraShake(scale * 0.55);
+    addCameraShake(scale * 0.25);
   }
 
   function createMuzzleFlash(position, direction) {
@@ -1984,7 +1984,7 @@
       spawnShell(muzzlePos, fireDir, player);
       createMuzzleFlash(muzzlePos, fireDir);
       player.fire(now);
-      addCameraShake(0.2);
+      addCameraShake(0.08);
       setCombatLog('CANNON ENGAGED');
       combatLogTimer = 1.5;
     }
@@ -2060,7 +2060,7 @@
       const s = shellPool[i];
       if (!s.active) continue;
 
-      s.velocity.y -= 30 * dt;
+      s.velocity.y -= 12 * dt;
       s.mesh.position.x += s.velocity.x * dt;
       s.mesh.position.y += s.velocity.y * dt;
       s.mesh.position.z += s.velocity.z * dt;
@@ -2118,7 +2118,7 @@
             createExplosion(s.mesh.position, 1.1);
             const destroyed = player.takeDamage(s.damage);
             showDamage();
-            addCameraShake(0.45);
+            addCameraShake(0.2);
             setCombatLog('HULL DAMAGE TAKEN');
             combatLogTimer = 2.0;
             if (destroyed) {
