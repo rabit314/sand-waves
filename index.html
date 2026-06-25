@@ -481,7 +481,7 @@
     <div id="damageVignette"></div>
 
     <div id="statusPanel">
-      <div class="status-line"><span class="dot"></span><span class="text">TACTICAL UPLINK ACTIVE</span></div>
+      <div class="status-line"><span class="dot"></span><span class="text">TACTICAL UPLINK ACTIVE v1.1.0</span></div>
       <div class="status-line"><span class="dot" style="background:#ff8844;box-shadow:0 0 6px #ff8844;animation-delay:0.3s"></span><span class="text" id="combatLog">AWAITING DEPLOYMENT</span></div>
     </div>
 
@@ -493,7 +493,7 @@
 
   <div id="startScreen" class="overlay">
     <h1>DESERT STEEL</h1>
-    <div class="subtitle">OPERATION DUNEBREAKER</div>
+    <div class="subtitle">OPERATION DUNEBREAKER v1.1.0</div>
     <div class="controls-list">
       <span class="key">W / S</span><span class="desc">Forward / Backward</span>
       <span class="key">A / D</span><span class="desc">Turn Left / Turn Right</span>
@@ -663,6 +663,133 @@
   terrain.receiveShadow = true;
   scene.add(terrain);
 
+  // ============ Geometry Merger Utility ============
+  function mergeBufferGeometries(geometries) {
+    let totalVertices = 0;
+    let totalIndices = 0;
+    const groups = [];
+
+    let hasNormals = false;
+    let hasUVs = false;
+    let hasColors = false;
+    let hasIndices = false;
+
+    for (let i = 0; i < geometries.length; i++) {
+      const g = geometries[i];
+      const posAttr = g.attributes.position;
+      const indexAttr = g.index;
+      
+      const vertexCount = posAttr.count;
+      const indexCount = indexAttr ? indexAttr.count : vertexCount;
+      
+      groups.push({
+        start: totalIndices,
+        count: indexCount,
+        materialIndex: g.userData.materialIndex !== undefined ? g.userData.materialIndex : 0
+      });
+      
+      totalVertices += vertexCount;
+      totalIndices += indexCount;
+
+      if (g.attributes.normal) hasNormals = true;
+      if (g.attributes.uv) hasUVs = true;
+      if (g.attributes.color) hasColors = true;
+      if (g.index) hasIndices = true;
+    }
+
+    const mergedPos = new Float32Array(totalVertices * 3);
+    const mergedNorm = hasNormals ? new Float32Array(totalVertices * 3) : null;
+    const mergedUV = hasUVs ? new Float32Array(totalVertices * 2) : null;
+    const mergedColor = hasColors ? new Float32Array(totalVertices * 3) : null;
+    const mergedIndices = new (totalVertices > 65535 ? Uint32Array : Uint16Array)(totalIndices);
+
+    let vertexOffset = 0;
+    let indexOffset = 0;
+
+    for (let i = 0; i < geometries.length; i++) {
+      const g = geometries[i];
+      const posAttr = g.attributes.position;
+      const normAttr = g.attributes.normal;
+      const uvAttr = g.attributes.uv;
+      const colorAttr = g.attributes.color;
+      const indexAttr = g.index;
+
+      const vertexCount = posAttr.count;
+
+      mergedPos.set(posAttr.array, vertexOffset * 3);
+
+      if (mergedNorm) {
+        if (normAttr) {
+          mergedNorm.set(normAttr.array, vertexOffset * 3);
+        } else {
+          for (let j = 0; j < vertexCount; j++) {
+            mergedNorm[(vertexOffset + j) * 3] = 0;
+            mergedNorm[(vertexOffset + j) * 3 + 1] = 1;
+            mergedNorm[(vertexOffset + j) * 3 + 2] = 0;
+          }
+        }
+      }
+
+      if (mergedUV) {
+        if (uvAttr) {
+          mergedUV.set(uvAttr.array, vertexOffset * 2);
+        }
+      }
+
+      if (mergedColor) {
+        if (colorAttr) {
+          mergedColor.set(colorAttr.array, vertexOffset * 3);
+        } else {
+          for (let j = 0; j < vertexCount; j++) {
+            mergedColor[(vertexOffset + j) * 3] = 1;
+            mergedColor[(vertexOffset + j) * 3 + 1] = 1;
+            mergedColor[(vertexOffset + j) * 3 + 2] = 1;
+          }
+        }
+      }
+
+      if (indexAttr) {
+        for (let j = 0; j < indexAttr.count; j++) {
+          mergedIndices[indexOffset + j] = indexAttr.array[j] + vertexOffset;
+        }
+        indexOffset += indexAttr.count;
+      } else {
+        for (let j = 0; j < vertexCount; j++) {
+          mergedIndices[indexOffset + j] = j + vertexOffset;
+        }
+        indexOffset += vertexCount;
+      }
+
+      vertexOffset += vertexCount;
+    }
+
+    const mergedGeo = new THREE.BufferGeometry();
+    mergedGeo.setAttribute('position', new THREE.BufferAttribute(mergedPos, 3));
+    if (mergedNorm) mergedGeo.setAttribute('normal', new THREE.BufferAttribute(mergedNorm, 3));
+    if (mergedUV) mergedGeo.setAttribute('uv', new THREE.BufferAttribute(mergedUV, 2));
+    if (mergedColor) mergedGeo.setAttribute('color', new THREE.BufferAttribute(mergedColor, 3));
+    mergedGeo.setIndex(new THREE.BufferAttribute(mergedIndices, 1));
+
+    for (let i = 0; i < groups.length; i++) {
+      const grp = groups[i];
+      mergedGeo.addGroup(grp.start, grp.count, grp.materialIndex);
+    }
+
+    return mergedGeo;
+  }
+
+  // ============ Helper for positioning merged parts ============
+  function addPart(geom, x, y, z, rx, ry, rz, materialIndex, targetList) {
+    const matrix = new THREE.Matrix4();
+    const position = new THREE.Vector3(x, y, z);
+    const rotation = new THREE.Euler(rx || 0, ry || 0, rz || 0);
+    const scale = new THREE.Vector3(1, 1, 1);
+    matrix.compose(position, new THREE.Quaternion().setFromEuler(rotation), scale);
+    geom.applyMatrix4(matrix);
+    geom.userData.materialIndex = materialIndex;
+    targetList.push(geom);
+  }
+
   // ============ Rocks and Debris ============
   function makeRockGeometry(size) {
     const geo = new THREE.DodecahedronGeometry(size, 0);
@@ -678,50 +805,82 @@
     return geo;
   }
 
-  const rockGroup = new THREE.Group();
+  const rockGeos = [];
+
   for (let i = 0; i < 140; i++) {
     const size = 0.35 + Math.pow(Math.random(), 2.4) * 3.2;
-    const rockMat = new THREE.MeshStandardMaterial({
-      color: new THREE.Color().setHSL(0.07, 0.18 + Math.random() * 0.15, 0.22 + Math.random() * 0.22),
-      roughness: 0.95,
-      flatShading: true
-    });
-    const rock = new THREE.Mesh(makeRockGeometry(size), rockMat);
-
     const angle = Math.random() * Math.PI * 2;
     const dist = 16 + Math.random() * 175;
-    rock.position.set(Math.cos(angle) * dist, 0, Math.sin(angle) * dist);
-    rock.position.y = getTerrainHeight(rock.position.x, rock.position.z) + size * 0.3;
-    rock.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
-    rock.scale.set(1, 0.5 + Math.random() * 0.4, 1);
-    rock.castShadow = true;
-    rock.receiveShadow = true;
-    rockGroup.add(rock);
+    const posX = Math.cos(angle) * dist;
+    const posZ = Math.sin(angle) * dist;
+    const posY = getTerrainHeight(posX, posZ) + size * 0.3;
+    const rotX = Math.random() * Math.PI;
+    const rotY = Math.random() * Math.PI;
+    const rotZ = Math.random() * Math.PI;
+    const scaleY = 0.5 + Math.random() * 0.4;
 
-    // Surrounding Debris
+    const rockGeo = makeRockGeometry(size);
+    const mat = new THREE.Matrix4().compose(
+      new THREE.Vector3(posX, posY, posZ),
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(rotX, rotY, rotZ)),
+      new THREE.Vector3(1, scaleY, 1)
+    );
+    rockGeo.applyMatrix4(mat);
+
+    const color = new THREE.Color().setHSL(0.07, 0.18 + Math.random() * 0.15, 0.22 + Math.random() * 0.22);
+    const colors = [];
+    for (let j = 0; j < rockGeo.attributes.position.count; j++) {
+      colors.push(color.r, color.g, color.b);
+    }
+    rockGeo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    rockGeos.push(rockGeo);
+
     if (Math.random() < 0.5) {
       const debrisCount = 2 + Math.floor(Math.random() * 3);
       for (let j = 0; j < debrisCount; j++) {
         const dSize = size * (0.15 + Math.random() * 0.2);
-        const debris = new THREE.Mesh(makeRockGeometry(dSize), rockMat);
         const a2 = Math.random() * Math.PI * 2;
         const d2 = size + Math.random() * size * 1.8;
-        debris.position.set(
-          rock.position.x + Math.cos(a2) * d2,
-          0,
-          rock.position.z + Math.sin(a2) * d2
+        const dpX = posX + Math.cos(a2) * d2;
+        const dpZ = posZ + Math.sin(a2) * d2;
+        const dpY = getTerrainHeight(dpX, dpZ) + dSize * 0.3;
+        const drX = Math.random() * Math.PI;
+        const drY = Math.random() * Math.PI;
+        const drZ = Math.random() * Math.PI;
+
+        const debrisGeo = makeRockGeometry(dSize);
+        const dMat = new THREE.Matrix4().compose(
+          new THREE.Vector3(dpX, dpY, dpZ),
+          new THREE.Quaternion().setFromEuler(new THREE.Euler(drX, drY, drZ)),
+          new THREE.Vector3(1, 0.5 + Math.random() * 0.4, 1)
         );
-        debris.position.y = getTerrainHeight(debris.position.x, debris.position.z) + dSize * 0.3;
-        debris.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
-        debris.castShadow = true;
-        debris.receiveShadow = true;
-        rockGroup.add(debris);
+        debrisGeo.applyMatrix4(dMat);
+
+        const dColors = [];
+        for (let k = 0; k < debrisGeo.attributes.position.count; k++) {
+          dColors.push(color.r, color.g, color.b);
+        }
+        debrisGeo.setAttribute('color', new THREE.Float32BufferAttribute(dColors, 3));
+        rockGeos.push(debrisGeo);
       }
     }
   }
-  scene.add(rockGroup);
+
+  const mergedRocksGeo = mergeBufferGeometries(rockGeos);
+  for (const g of rockGeos) g.dispose();
+
+  const sharedRockMat = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.95,
+    flatShading: true
+  });
+  const mergedRocksMesh = new THREE.Mesh(mergedRocksGeo, sharedRockMat);
+  mergedRocksMesh.castShadow = true;
+  mergedRocksMesh.receiveShadow = true;
+  scene.add(mergedRocksMesh);
 
   // ============ Distant Rock Mesas ============
+  const mesaGeos = [];
   for (let i = 0; i < 7; i++) {
     const angle = (i / 7) * Math.PI * 2 + 0.4 + Math.random() * 0.3;
     const dist = 200 + Math.random() * 40;
@@ -731,7 +890,7 @@
     const height = 22 + Math.random() * 18;
     const radius = 14 + Math.random() * 10;
 
-    const mesaGeo = new THREE.CylinderGeometry(radius * 0.7, radius, height, 5 + Math.floor(Math.random() * 3));
+    const mesaGeo = new THREE.CylinderGeometry(radius * 0.7, radius, height, 6);
     const pos = mesaGeo.attributes.position;
     for (let j = 0; j < pos.count; j++) {
       pos.setX(j, pos.getX(j) + (Math.random() - 0.5) * 3);
@@ -739,15 +898,22 @@
     }
     mesaGeo.computeVertexNormals();
 
-    const mesaMat = new THREE.MeshStandardMaterial({
-      color: 0x8a6c46,
-      roughness: 0.96,
-      flatShading: true
-    });
-    const mesa = new THREE.Mesh(mesaGeo, mesaMat);
-    mesa.position.set(x, getTerrainHeight(x, z) + height / 2 - 4, z);
-    scene.add(mesa);
+    const mat = new THREE.Matrix4().makeTranslation(x, getTerrainHeight(x, z) + height / 2 - 4, z);
+    mesaGeo.applyMatrix4(mat);
+    mesaGeos.push(mesaGeo);
   }
+
+  const mergedMesasGeo = mergeBufferGeometries(mesaGeos);
+  for (const g of mesaGeos) g.dispose();
+
+  const mesaMat = new THREE.MeshStandardMaterial({
+    color: 0x8a6c46,
+    roughness: 0.96,
+    flatShading: true
+  });
+  const mergedMesasMesh = new THREE.Mesh(mergedMesasGeo, mesaMat);
+  mergedMesasMesh.receiveShadow = true;
+  scene.add(mergedMesasMesh);
 
   // ============ Tank Class ============
   class Tank {
@@ -777,192 +943,102 @@
         roughness: 0.5, metalness: 0.55
       });
       const detailMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.8 });
+      const wheelMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.7, metalness: 0.4 });
+      const emissiveMat = new THREE.MeshStandardMaterial({ color: 0xff3a3a, emissive: 0xff3a3a, emissiveIntensity: 0.8 });
+
+      const hullMaterials = [bodyMat, darkMat, detailMat, wheelMat];
+      const turretMaterials = [bodyMat, darkMat, barrelMat, detailMat, emissiveMat];
+
+      const hullGeos = [];
+      const addHullPart = (geom, x, y, z, rx, ry, rz, matIdx) => {
+        addPart(geom, x, y, z, rx, ry, rz, matIdx, hullGeos);
+      };
 
       // Hull
-      const hull = new THREE.Mesh(new THREE.BoxGeometry(3.0, 0.9, 4.4), bodyMat);
-      hull.position.y = 1.15;
-      hull.castShadow = true; hull.receiveShadow = true;
-      this.group.add(hull);
+      addHullPart(new THREE.BoxGeometry(3.0, 0.9, 4.4), 0, 1.15, 0, 0, 0, 0, 0);
 
       // Front Sloped Armor
-      const frontArmor = new THREE.Mesh(new THREE.BoxGeometry(2.9, 0.7, 0.9), bodyMat);
-      frontArmor.position.set(0, 0.9, 2.15);
-      frontArmor.rotation.x = -0.45;
-      frontArmor.castShadow = true;
-      this.group.add(frontArmor);
+      addHullPart(new THREE.BoxGeometry(2.9, 0.7, 0.9), 0, 0.9, 2.15, -0.45, 0, 0, 0);
 
       // Rear Armor
-      const rearArmor = new THREE.Mesh(new THREE.BoxGeometry(2.9, 0.6, 0.6), bodyMat);
-      rearArmor.position.set(0, 1.0, -2.3);
-      rearArmor.rotation.x = 0.5;
-      rearArmor.castShadow = true;
-      this.group.add(rearArmor);
+      addHullPart(new THREE.BoxGeometry(2.9, 0.6, 0.6), 0, 1.0, -2.3, 0.5, 0, 0, 0);
 
-      // Fenders
+      // Fenders & Supports & Tracks
       for (const side of [-1, 1]) {
-        const fender = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.12, 4.6), bodyMat);
-        fender.position.set(side * 1.65, 1.05, 0);
-        fender.castShadow = true;
-        this.group.add(fender);
+        addHullPart(new THREE.BoxGeometry(0.5, 0.12, 4.6), side * 1.65, 1.05, 0, 0, 0, 0, 0);
 
         for (let i = -1; i <= 1; i++) {
-          const sup = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.1), darkMat);
-          sup.position.set(side * 1.65, 0.85, i * 1.5);
-          this.group.add(sup);
+          addHullPart(new THREE.BoxGeometry(0.5, 0.4, 0.1), side * 1.65, 0.85, i * 1.5, 0, 0, 0, 1);
         }
-      }
 
-      // Tracks and Road Wheels
-      for (const side of [-1, 1]) {
-        const trackGroup = new THREE.Group();
-        const track = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 4.8), darkMat);
-        track.position.y = 0.55;
-        track.castShadow = true;
-        trackGroup.add(track);
+        addHullPart(new THREE.BoxGeometry(0.7, 0.7, 4.8), side * 1.4, 0.55, 0, 0, 0, 0, 1);
 
-        // Track Surface Treads
         for (let i = -2.2; i <= 2.2; i += 0.4) {
-          const tread = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.1, 0.15), darkMat);
-          tread.position.set(0, 0.25, i);
-          trackGroup.add(tread);
+          addHullPart(new THREE.BoxGeometry(0.75, 0.1, 0.15), side * 1.4, 0.25, i, 0, 0, 0, 1);
         }
 
-        // Road Wheels
         for (let i = -2; i <= 2; i++) {
-          const wheel = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.42, 0.42, 0.5, 16),
-            new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.7, metalness: 0.4 })
-          );
-          wheel.rotation.z = Math.PI / 2;
-          wheel.position.set(0, 0.5, i * 0.9);
-          wheel.castShadow = true;
-          trackGroup.add(wheel);
-          this.trackWheels.push(wheel);
+          addHullPart(new THREE.CylinderGeometry(0.42, 0.42, 0.5, 8), side * 1.4, 0.5, i * 0.9, 0, 0, Math.PI / 2, 3);
         }
 
-        // Drive Sprocket and Idler Wheel
         for (const z of [-2.2, 2.2]) {
-          const sprocket = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.5, 0.5, 0.5, 12),
-            darkMat
-          );
-          sprocket.rotation.z = Math.PI / 2;
-          sprocket.position.set(0, 0.6, z);
-          sprocket.castShadow = true;
-          trackGroup.add(sprocket);
+          addHullPart(new THREE.CylinderGeometry(0.5, 0.5, 0.5, 8), side * 1.4, 0.6, z, 0, 0, Math.PI / 2, 1);
         }
-
-        trackGroup.position.x = side * 1.4;
-        this.group.add(trackGroup);
       }
 
-      // Turret Group
+      const mergedHullGeo = mergeBufferGeometries(hullGeos);
+      for (const g of hullGeos) g.dispose();
+      
+      const hullMesh = new THREE.Mesh(mergedHullGeo, hullMaterials);
+      hullMesh.castShadow = true;
+      hullMesh.receiveShadow = true;
+      this.group.add(hullMesh);
+
+      // Turret Geometries
+      const turretGeos = [];
+      const addTurretPart = (geom, x, y, z, rx, ry, rz, matIdx) => {
+        addPart(geom, x, y, z, rx, ry, rz, matIdx, turretGeos);
+      };
+
+      addTurretPart(new THREE.BoxGeometry(2.2, 0.6, 2.6), 0, 0.3, 0, 0, 0, 0, 0);
+      addTurretPart(new THREE.BoxGeometry(1.9, 0.4, 2.2), 0, 0.8, 0, 0, 0, 0, 0);
+      addTurretPart(new THREE.BoxGeometry(1.5, 0.7, 0.4), 0, 0.4, 1.4, -0.3, 0, 0, 0);
+      addTurretPart(new THREE.CylinderGeometry(0.5, 0.5, 0.15, 8), 0, 1.05, -0.3, 0, 0, 0, 0);
+      addTurretPart(new THREE.BoxGeometry(0.3, 0.05, 0.1), 0, 1.15, -0.3, 0, 0, 0, 3);
+      addTurretPart(new THREE.BoxGeometry(0.9, 0.7, 0.5), 0, 0.4, 1.55, 0, 0, 0, 2);
+      addTurretPart(new THREE.CylinderGeometry(0.13, 0.16, 3.8, 8), 0, 0.4, 3.3, Math.PI / 2, 0, 0, 2);
+      addTurretPart(new THREE.CylinderGeometry(0.22, 0.22, 0.5, 8), 0, 0.4, 5.0, Math.PI / 2, 0, 0, 2);
+      addTurretPart(new THREE.CylinderGeometry(0.022, 0.028, 1.9, 6), -0.75, 1.0, -0.8, 0, 0, 0, 3);
+      addTurretPart(new THREE.SphereGeometry(0.045, 6, 6), -0.75, 1.95, -0.8, 0, 0, 0, 4);
+      addTurretPart(new THREE.CylinderGeometry(0.35, 0.4, 0.3, 8), 0.5, 1.05, -0.4, 0, 0, 0, 0);
+
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        addTurretPart(new THREE.SphereGeometry(0.06, 6, 6), Math.cos(a) * 0.95, 0.55, Math.sin(a) * 1.1, 0, 0, 0, 3);
+      }
+
+      for (const side of [-1, 1]) {
+        addTurretPart(new THREE.BoxGeometry(0.3, 0.4, 0.8), side * 1.1, 0.4, -0.8, 0, 0, 0, 3);
+      }
+
+      const mergedTurretGeo = mergeBufferGeometries(turretGeos);
+      for (const g of turretGeos) g.dispose();
+
       this.turretGroup = new THREE.Group();
       this.turretGroup.position.set(0, 1.65, 0);
       this.group.add(this.turretGroup);
 
-      // Turret Base
-      const turretBase = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.6, 2.6), bodyMat);
-      turretBase.position.y = 0.3;
-      turretBase.castShadow = true;
-      this.turretGroup.add(turretBase);
+      const turretMesh = new THREE.Mesh(mergedTurretGeo, turretMaterials);
+      turretMesh.castShadow = true;
+      turretMesh.receiveShadow = true;
+      this.turretGroup.add(turretMesh);
 
-      // Turret Top
-      const turretTop = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.4, 2.2), bodyMat);
-      turretTop.position.y = 0.8;
-      turretTop.castShadow = true;
-      this.turretGroup.add(turretTop);
-
-      // Turret Front Armor
-      const turretFront = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.7, 0.4), bodyMat);
-      turretFront.position.set(0, 0.4, 1.4);
-      turretFront.rotation.x = -0.3;
-      this.turretGroup.add(turretFront);
-
-      // Hatch
-      const hatch = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.5, 0.5, 0.15, 12),
-        bodyMat
-      );
-      hatch.position.set(0, 1.05, -0.3);
-      this.turretGroup.add(hatch);
-
-      // Hatch Handle
-      const handle = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.05, 0.1), detailMat);
-      handle.position.set(0, 1.15, -0.3);
-      this.turretGroup.add(handle);
-
-      // Gun Mantlet
-      const mantlet = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.7, 0.5), barrelMat);
-      mantlet.position.set(0, 0.4, 1.55);
-      this.turretGroup.add(mantlet);
-
-      // Long Barrel
-      const barrel = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.13, 0.16, 3.8, 16),
-        barrelMat
-      );
-      barrel.rotation.x = Math.PI / 2;
-      barrel.position.set(0, 0.4, 3.3);
-      barrel.castShadow = true;
-      this.turretGroup.add(barrel);
-
-      // Muzzle Brake
-      const muzzle = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.22, 0.22, 0.5, 16),
-        barrelMat
-      );
-      muzzle.rotation.x = Math.PI / 2;
-      muzzle.position.set(0, 0.4, 5.0);
-      this.turretGroup.add(muzzle);
-
-      // Antenna
-      const antenna = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.022, 0.028, 1.9, 6),
-        detailMat
-      );
-      antenna.position.set(-0.75, 1.0, -0.8);
-      this.turretGroup.add(antenna);
-
-      // Antenna Tip Red Dot
-      const antennaTip = new THREE.Mesh(
-        new THREE.SphereGeometry(0.045, 6, 6),
-        new THREE.MeshStandardMaterial({ color: 0xff3a3a, emissive: 0xff3a3a, emissiveIntensity: 0.8 })
-      );
-      antennaTip.position.set(-0.75, 1.95, -0.8);
-      this.turretGroup.add(antennaTip);
-
-      // Commander's Cupola
-      const cupola = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.35, 0.4, 0.3, 12),
-        bodyMat
-      );
-      cupola.position.set(0.5, 1.05, -0.4);
-      this.turretGroup.add(cupola);
-
-      // Bolt Details
-      for (let i = 0; i < 8; i++) {
-        const bolt = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6, 6), detailMat);
-        const a = (i / 8) * Math.PI * 2;
-        bolt.position.set(Math.cos(a) * 0.95, 0.55, Math.sin(a) * 1.1);
-        this.turretGroup.add(bolt);
-      }
-
-      // Toolboxes
-      for (const side of [-1, 1]) {
-        const box = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.4, 0.8), detailMat);
-        box.position.set(side * 1.1, 0.4, -0.8);
-        this.turretGroup.add(box);
-      }
-
-      // Muzzle Position
       this.muzzlePoint = new THREE.Object3D();
       this.muzzlePoint.position.set(0, 0.4, 5.3);
       this.turretGroup.add(this.muzzlePoint);
 
-      // Enemy Under-marker
       if (this.isEnemy) {
-        const markerGeo = new THREE.RingGeometry(2.6, 3.1, 24);
+        const markerGeo = new THREE.RingGeometry(2.6, 3.1, 12);
         const markerMat = new THREE.MeshBasicMaterial({
           color: 0xff3a3a, transparent: true, opacity: 0.6, side: THREE.DoubleSide
         });
@@ -977,6 +1053,10 @@
       this.group.position.x = x;
       this.group.position.z = z;
       this.group.position.y = getTerrainHeight(x, z);
+    }
+
+    setRotation(angle) {
+      this.group.rotation.y = angle;
     }
 
     getMuzzleWorldPosition() {
@@ -995,11 +1075,9 @@
     }
 
     update(dt) {
-      // Wheel Rotation
       const wheelRot = this.speed * dt * 3.5;
       for (const w of this.trackWheels) w.rotation.x += wheelRot;
 
-      // Enemy Marker Animation
       if (this.marker) {
         this.marker.material.opacity = 0.4 + Math.sin(performance.now() * 0.005) * 0.25;
         const t = this.health / this.maxHealth;
@@ -1042,285 +1120,282 @@
     return enemy;
   }
 
-  // ============ Shell Management ============
-  const shells = [];
+  // ============ Shell Management & Pooling ============
+  const shellPool = [];
+  const maxPooledShells = 25;
+  
+  const shellGeo = new THREE.SphereGeometry(0.22, 8, 8);
+  const shellMat = new THREE.MeshStandardMaterial({
+    color: 0xffcc66, emissive: 0xff8800, emissiveIntensity: 2.5
+  });
+  const shellTrailGeo = new THREE.CylinderGeometry(0.08, 0.18, 2.4, 6);
+  const shellTrailMat = new THREE.MeshBasicMaterial({
+    color: 0xffaa44, transparent: true, opacity: 0.55,
+    blending: THREE.AdditiveBlending, depthWrite: false
+  });
 
-  function createShell(position, direction, owner, speed = 85) {
-    const geo = new THREE.SphereGeometry(0.22, 10, 10);
-    const mat = new THREE.MeshStandardMaterial({
-      color: 0xffcc66, emissive: 0xff8800, emissiveIntensity: 2.5
-    });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.copy(position);
-
-    // Light Source
+  for (let i = 0; i < maxPooledShells; i++) {
+    const mesh = new THREE.Mesh(shellGeo, shellMat);
     const light = new THREE.PointLight(0xff8800, 1.8, 10);
     mesh.add(light);
 
-    // Trail
-    const trailGeo = new THREE.CylinderGeometry(0.08, 0.18, 2.4, 8);
-    const trailMat = new THREE.MeshBasicMaterial({
-      color: 0xffaa44, transparent: true, opacity: 0.55,
-      blending: THREE.AdditiveBlending, depthWrite: false
-    });
-    const trail = new THREE.Mesh(trailGeo, trailMat);
+    const trail = new THREE.Mesh(shellTrailGeo, shellTrailMat);
     trail.rotation.x = Math.PI / 2;
     trail.position.z = 1.2;
     mesh.add(trail);
 
-    // Orientation: Make -Z point in flight direction
-    const target = position.clone().add(direction);
-    mesh.lookAt(target);
-
+    mesh.visible = false;
     scene.add(mesh);
 
-    shells.push({
-      mesh, trail,
-      velocity: direction.clone().multiplyScalar(speed),
-      life: 3.5,
-      owner,
-      damage: owner.isEnemy ? 18 : 28
+    shellPool.push({
+      mesh,
+      light,
+      trail,
+      active: false,
+      velocity: new THREE.Vector3(),
+      life: 0,
+      owner: null,
+      damage: 0
     });
   }
 
-  // ============ Particle System ============
-
-  // ============ Shared Particle Resources ============
-  const sharedGeoSphere = new THREE.SphereGeometry(1, 6, 6);
-  const sharedGeoBox = new THREE.BoxGeometry(1, 1, 1);
-  const sharedMatFireball = new THREE.MeshBasicMaterial({ transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false });
-  const sharedMatSmoke = new THREE.MeshBasicMaterial({ color: 0x8a8a8a, transparent: true, opacity: 0.55, depthWrite: false });
-  const sharedMatDebris = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.8 });
-  const sharedMatDust = new THREE.MeshBasicMaterial({ color: 0xd4a878, transparent: true, opacity: 0.45, depthWrite: false });
-  const sharedMatSandSplash = new THREE.MeshBasicMaterial({ color: 0xd4a878, transparent: true, opacity: 0.8, depthWrite: false });
-  const sharedMatMuzzleFire = new THREE.MeshBasicMaterial({ color: 0xffd060, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false });
-
-  const particles = [];
-
-  function createExplosion(position, scale = 1) {
-    // Fireball
-    const fireCount = Math.floor(22 * scale);
-    for (let i = 0; i < fireCount; i++) {
-      const mat = sharedMatFireball.clone();
-      mat.color.setHSL(0.05 + Math.random() * 0.1, 1, 0.55);
-      const mesh = new THREE.Mesh(sharedGeoSphere, mat);
-      mesh.scale.setScalar(0.3 * scale);
-      mesh.position.copy(position);
-      mesh.position.x += (Math.random() - 0.5) * scale * 1.5;
-      mesh.position.y += Math.random() * scale * 0.5;
-      mesh.position.z += (Math.random() - 0.5) * scale * 1.5;
-
-      scene.add(mesh);
-      particles.push({
-        mesh,
-        disposeMat: true,
-        velocity: new THREE.Vector3(
-          (Math.random() - 0.5) * 16 * scale,
-          Math.random() * 11 * scale + 2,
-          (Math.random() - 0.5) * 16 * scale
-        ),
-        life: 0.6 + Math.random() * 0.4,
-        maxLife: 1.0,
-        gravity: -22,
-        shrink: true,
-        fade: true
-      });
-    }
-
-    // Smoke
-    const smokeCount = Math.floor(28 * scale);
-    for (let i = 0; i < smokeCount; i++) {
-      const mat = sharedMatSmoke.clone();
-      mat.color.setHSL(0, 0, 0.12 + Math.random() * 0.18);
-      const mesh = new THREE.Mesh(sharedGeoSphere, mat);
-      mesh.scale.setScalar(0.55 * scale);
-      mesh.position.copy(position);
-
-      scene.add(mesh);
-      particles.push({
-        mesh,
-        disposeMat: true,
-        velocity: new THREE.Vector3(
-          (Math.random() - 0.5) * 9 * scale,
-          Math.random() * 9 * scale + 3,
-          (Math.random() - 0.5) * 9 * scale
-        ),
-        life: 1.5 + Math.random() * 1.2,
-        maxLife: 2.7,
-        gravity: -3,
-        expand: 3.5,
-        fade: true
-      });
-    }
-
-    // Debris
-    const debrisCount = Math.floor(16 * scale);
-    for (let i = 0; i < debrisCount; i++) {
-      const mesh = new THREE.Mesh(sharedGeoBox, sharedMatDebris);
-      mesh.scale.setScalar(0.2);
-      mesh.position.copy(position);
-      mesh.castShadow = true;
-
-      scene.add(mesh);
-      particles.push({
-        mesh,
-        velocity: new THREE.Vector3(
-          (Math.random() - 0.5) * 22 * scale,
-          Math.random() * 16 * scale + 5,
-          (Math.random() - 0.5) * 22 * scale
-        ),
-        life: 1.6,
-        maxLife: 1.6,
-        gravity: -32,
-        rotate: true,
-        fade: false,
-        bounce: true
-      });
-    }
-
-    // Sand Splashes
-    for (let i = 0; i < 12 * scale; i++) {
-      const mesh = new THREE.Mesh(sharedGeoSphere, sharedMatSandSplash);
-      mesh.scale.setScalar(0.2 * scale);
-      mesh.position.copy(position);
-      mesh.position.y = getTerrainHeight(position.x, position.z) + 0.1;
-
-      scene.add(mesh);
-      particles.push({
-        mesh,
-        velocity: new THREE.Vector3(
-          (Math.random() - 0.5) * 12,
-          Math.random() * 6 + 2,
-          (Math.random() - 0.5) * 12
-        ),
-        life: 0.8 + Math.random() * 0.5,
-        maxLife: 1.3,
-        gravity: -18,
-        fade: true,
-        shrink: true,
-        bounce: true
-      });
-    }
-
-    // Flash
-    const flashLight = new THREE.PointLight(0xff8800, 10 * scale, 28 * scale);
-    flashLight.position.copy(position);
-    scene.add(flashLight);
-    particles.push({ light: flashLight, life: 0.22, maxLife: 0.22, fadeLight: true });
-
-    addCameraShake(scale * 0.55);
-  }
-
-  function createMuzzleFlash(position, direction) {
-    // FlashFireball
-    for (let i = 0; i < 10; i++) {
-      const mesh = new THREE.Mesh(sharedGeoSphere, sharedMatMuzzleFire);
-      mesh.scale.setScalar(0.16 + Math.random() * 0.1);
-      mesh.position.copy(position);
-      mesh.position.add(direction.clone().multiplyScalar(Math.random() * 0.6));
-
-      const v = direction.clone().multiplyScalar(9 + Math.random() * 6);
-      v.x += (Math.random() - 0.5) * 4;
-      v.y += (Math.random() - 0.5) * 4;
-      v.z += (Math.random() - 0.5) * 4;
-
-      scene.add(mesh);
-      particles.push({
-        mesh, velocity: v,
-        life: 0.18, maxLife: 0.18,
-        fade: true, shrink: true
-      });
-    }
-
-    // Smoke
-    for (let i = 0; i < 6; i++) {
-      const mesh = new THREE.Mesh(sharedGeoSphere, sharedMatSmoke);
-      mesh.scale.setScalar(0.22);
-      mesh.position.copy(position);
-
-      const v = direction.clone().multiplyScalar(3.5);
-      v.x += (Math.random() - 0.5) * 2.5;
-      v.y += (Math.random() - 0.5) * 2.5 + 1;
-      v.z += (Math.random() - 0.5) * 2.5;
-
-      scene.add(mesh);
-      particles.push({
-        mesh, velocity: v,
-        life: 0.9, maxLife: 0.9,
-        fade: true, expand: 2.2
-      });
-    }
-
-    // Flash Light
-    const flashLight = new THREE.PointLight(0xffaa44, 6, 18);
-    flashLight.position.copy(position);
-    scene.add(flashLight);
-    particles.push({ light: flashLight, life: 0.12, maxLife: 0.12, fadeLight: true });
-  }
-
-  function createDust(position, intensity = 1) {
-    for (let i = 0; i < 2; i++) {
-      const mesh = new THREE.Mesh(sharedGeoSphere, sharedMatDust);
-      mesh.scale.setScalar(0.32);
-      mesh.position.copy(position);
-      mesh.position.x += (Math.random() - 0.5) * 2.2;
-      mesh.position.z += (Math.random() - 0.5) * 2.2;
-      mesh.position.y += 0.2;
-
-      scene.add(mesh);
-      particles.push({
-        mesh,
-        velocity: new THREE.Vector3(
-          (Math.random() - 0.5) * 2.5 * intensity,
-          Math.random() * 1.6 + 0.5,
-          (Math.random() - 0.5) * 2.5 * intensity
-        ),
-        life: 0.9 + Math.random() * 0.5,
-        maxLife: 1.4,
-        fade: true,
-        expand: 2.2
-      });
-    }
-  }
-
-  function updateParticles(dt) {
-    for (let i = particles.length - 1; i >= 0; i--) {
-      const p = particles[i];
-      p.life -= dt;
-
-      if (p.life <= 0) {
-        if (p.mesh) {
-          scene.remove(p.mesh);
-          if (p.disposeMat) p.mesh.material.dispose();
+  function spawnShell(position, direction, owner, speed = 85) {
+    let s = shellPool.find(item => !item.active);
+    if (!s) {
+      s = shellPool[0];
+      let minLife = s.life;
+      for (let i = 1; i < shellPool.length; i++) {
+        if (shellPool[i].life < minLife) {
+          minLife = shellPool[i].life;
+          s = shellPool[i];
         }
-        if (p.light) scene.remove(p.light);
-        particles.splice(i, 1);
-        continue;
+      }
+    }
+
+    s.mesh.position.copy(position);
+    s.velocity.copy(direction).multiplyScalar(speed);
+    s.life = 3.5;
+    s.owner = owner;
+    s.damage = owner.isEnemy ? 18 : 28;
+    s.mesh.visible = true;
+    s.light.intensity = 1.8;
+    s.active = true;
+
+    const target = position.clone().add(direction);
+    s.mesh.lookAt(target);
+  }
+
+  // ============ Point Light Pool ============
+  const lightPool = [];
+  const maxLights = 10;
+  for (let i = 0; i < maxLights; i++) {
+    const pl = new THREE.PointLight(0xff8800, 0, 10);
+    pl.visible = false;
+    scene.add(pl);
+    lightPool.push({
+      light: pl,
+      life: 0,
+      initialIntensity: 0
+    });
+  }
+
+  function spawnPointLight(position, intensity, distance, life) {
+    let pLight = lightPool.find(p => !p.light.visible);
+    if (!pLight) {
+      pLight = lightPool[0];
+      let minLife = pLight.life;
+      for (let i = 1; i < lightPool.length; i++) {
+        if (lightPool[i].life < minLife) {
+          minLife = lightPool[i].life;
+          pLight = lightPool[i];
+        }
+      }
+    }
+
+    pLight.light.position.copy(position);
+    pLight.light.intensity = intensity;
+    pLight.light.distance = distance;
+    pLight.light.color.setHex(0xff8800);
+    pLight.light.visible = true;
+    pLight.life = life;
+    pLight.initialIntensity = intensity;
+  }
+
+  function updatePointLights(dt) {
+    for (let i = 0; i < lightPool.length; i++) {
+      const p = lightPool[i];
+      if (p.light.visible) {
+        p.life -= dt;
+        if (p.life <= 0) {
+          p.light.visible = false;
+        } else {
+          p.light.intensity *= 0.82;
+        }
+      }
+    }
+  }
+
+  // ============ Particle System ============
+  class ParticleSystem {
+    constructor() {
+      this.maxAdditive = 1200;
+      this.maxTransparent = 1500;
+      this.maxDebris = 500;
+
+      const sphereGeo = new THREE.SphereGeometry(1, 5, 5);
+      const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+
+      this.additiveMat = new THREE.MeshBasicMaterial({
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      });
+      this.setupInstanceOpacity(this.additiveMat);
+
+      this.transparentMat = new THREE.MeshBasicMaterial({
+        transparent: true,
+        depthWrite: false
+      });
+      this.setupInstanceOpacity(this.transparentMat);
+
+      this.debrisMat = new THREE.MeshStandardMaterial({
+        color: 0x242424,
+        roughness: 0.8,
+        flatShading: true
+      });
+
+      this.additiveMesh = new THREE.InstancedMesh(sphereGeo, this.additiveMat, this.maxAdditive);
+      this.transparentMesh = new THREE.InstancedMesh(sphereGeo, this.transparentMat, this.maxTransparent);
+      this.debrisMesh = new THREE.InstancedMesh(boxGeo, this.debrisMat, this.maxDebris);
+
+      this.debrisMesh.castShadow = true;
+      this.debrisMesh.receiveShadow = true;
+
+      this.additiveMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      this.transparentMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      this.debrisMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+
+      this.additiveMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(this.maxAdditive * 3), 3);
+      this.additiveMesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
+
+      this.transparentMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(this.maxTransparent * 3), 3);
+      this.transparentMesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
+
+      scene.add(this.additiveMesh);
+      scene.add(this.transparentMesh);
+      scene.add(this.debrisMesh);
+
+      this.additiveOpacity = new Float32Array(this.maxAdditive);
+      this.additiveMesh.geometry.setAttribute('instanceOpacity', new THREE.InstancedBufferAttribute(this.additiveOpacity, 1).setUsage(THREE.DynamicDrawUsage));
+
+      this.transparentOpacity = new Float32Array(this.maxTransparent);
+      this.transparentMesh.geometry.setAttribute('instanceOpacity', new THREE.InstancedBufferAttribute(this.transparentOpacity, 1).setUsage(THREE.DynamicDrawUsage));
+
+      this.additivePool = [];
+      this.transparentPool = [];
+      this.debrisPool = [];
+
+      this.tempMatrix = new THREE.Matrix4();
+      this.tempPosition = new THREE.Vector3();
+      this.tempRotation = new THREE.Quaternion();
+      this.tempScale = new THREE.Vector3();
+      this.tempEuler = new THREE.Euler();
+    }
+
+    setupInstanceOpacity(material) {
+      material.onBeforeCompile = (shader) => {
+        shader.vertexShader = `
+          attribute float instanceOpacity;
+          varying float vInstanceOpacity;
+        ` + shader.vertexShader.replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+           vInstanceOpacity = instanceOpacity;`
+        );
+        shader.fragmentShader = `
+          varying float vInstanceOpacity;
+        ` + shader.fragmentShader.replace(
+          'diffuseColor = vec4( diffuse, opacity );',
+          'diffuseColor = vec4( diffuse, opacity * vInstanceOpacity );'
+        );
+      };
+    }
+
+    spawn(type, config) {
+      let pool;
+      let maxCount;
+      if (type === 'additive') {
+        pool = this.additivePool;
+        maxCount = this.maxAdditive;
+      } else if (type === 'transparent') {
+        pool = this.transparentPool;
+        maxCount = this.maxTransparent;
+      } else {
+        pool = this.debrisPool;
+        maxCount = this.maxDebris;
       }
 
-      if (p.mesh) {
-        p.mesh.position.x += p.velocity.x * dt;
-        p.mesh.position.y += p.velocity.y * dt;
-        p.mesh.position.z += p.velocity.z * dt;
+      if (pool.length >= maxCount) {
+        pool.shift();
+      }
+
+      pool.push({
+        position: config.position.clone(),
+        velocity: config.velocity.clone(),
+        scale: config.scale !== undefined ? config.scale : 1.0,
+        color: config.color ? config.color.clone() : new THREE.Color(0xffffff),
+        life: config.life,
+        maxLife: config.life,
+        gravity: config.gravity || 0,
+        shrink: config.shrink || false,
+        expand: config.expand || 0,
+        rotate: config.rotate || false,
+        rotation: new THREE.Vector3(Math.random() * 6, Math.random() * 6, Math.random() * 6),
+        rotationSpeed: new THREE.Vector3(
+          (Math.random() - 0.5) * 8,
+          (Math.random() - 0.5) * 8,
+          (Math.random() - 0.5) * 8
+        ),
+        fade: config.fade !== undefined ? config.fade : true,
+        bounce: config.bounce || false,
+        initialOpacity: config.opacity !== undefined ? config.opacity : 1.0
+      });
+    }
+
+    update(dt) {
+      this.updatePool(this.additivePool, this.additiveMesh, this.additiveOpacity, dt, true);
+      this.updatePool(this.transparentPool, this.transparentMesh, this.transparentOpacity, dt, true);
+      this.updatePool(this.debrisPool, this.debrisMesh, null, dt, false);
+    }
+
+    updatePool(pool, instancedMesh, opacityArray, dt, supportsColorAndOpacity) {
+      const zeroMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
+
+      for (let i = pool.length - 1; i >= 0; i--) {
+        const p = pool[i];
+        p.life -= dt;
+
+        if (p.life <= 0) {
+          pool.splice(i, 1);
+          continue;
+        }
+
+        p.position.x += p.velocity.x * dt;
+        p.position.y += p.velocity.y * dt;
+        p.position.z += p.velocity.z * dt;
 
         if (p.gravity) p.velocity.y += p.gravity * dt;
 
-        const r = p.life / p.maxLife;
-
-        if (p.fade) p.mesh.material.opacity = r * (p.mesh.material.opacity > 0 ? 1 : 1);
-        if (p.shrink) p.mesh.scale.setScalar(Math.max(0.01, r));
-        if (p.expand) p.mesh.scale.setScalar(1 + (1 - r) * p.expand);
         if (p.rotate) {
-          p.mesh.rotation.x += dt * 6;
-          p.mesh.rotation.y += dt * 8;
-          p.mesh.rotation.z += dt * 4;
+          p.rotation.x += p.rotationSpeed.x * dt;
+          p.rotation.y += p.rotationSpeed.y * dt;
+          p.rotation.z += p.rotationSpeed.z * dt;
         }
 
-        // Bounce
         if (p.bounce) {
-          const groundY = getTerrainHeight(p.mesh.position.x, p.mesh.position.z) + 0.15;
-          if (p.mesh.position.y < groundY) {
-            p.mesh.position.y = groundY;
+          const groundY = getTerrainHeight(p.position.x, p.position.z) + 0.15;
+          if (p.position.y < groundY) {
+            p.position.y = groundY;
             p.velocity.y *= -0.35;
             p.velocity.x *= 0.6;
             p.velocity.z *= 0.6;
@@ -1328,7 +1403,214 @@
         }
       }
 
-      if (p.light && p.fadeLight) p.light.intensity *= 0.82;
+      const activeCount = pool.length;
+      const maxCount = instancedMesh.count;
+
+      for (let i = 0; i < maxCount; i++) {
+        if (i < activeCount) {
+          const p = pool[i];
+          const r = p.life / p.maxLife;
+
+          let currentScale = p.scale;
+          if (p.shrink) currentScale *= Math.max(0.01, r);
+          if (p.expand) currentScale *= (1 + (1 - r) * p.expand);
+
+          this.tempPosition.copy(p.position);
+          this.tempEuler.set(p.rotation.x, p.rotation.y, p.rotation.z);
+          this.tempRotation.setFromEuler(this.tempEuler);
+          this.tempScale.setScalar(currentScale);
+
+          this.tempMatrix.compose(this.tempPosition, this.tempRotation, this.tempScale);
+          instancedMesh.setMatrixAt(i, this.tempMatrix);
+
+          if (supportsColorAndOpacity) {
+            instancedMesh.setColorAt(i, p.color);
+            let currentOpacity = p.initialOpacity;
+            if (p.fade) currentOpacity *= r;
+            opacityArray[i] = currentOpacity;
+          }
+        } else {
+          instancedMesh.setMatrixAt(i, zeroMatrix);
+          if (supportsColorAndOpacity) {
+            opacityArray[i] = 0.0;
+          }
+        }
+      }
+
+      instancedMesh.instanceMatrix.needsUpdate = true;
+      if (supportsColorAndOpacity) {
+        if (instancedMesh.instanceColor) instancedMesh.instanceColor.needsUpdate = true;
+        if (instancedMesh.geometry.attributes.instanceOpacity) instancedMesh.geometry.attributes.instanceOpacity.needsUpdate = true;
+      }
+    }
+
+    clear() {
+      this.additivePool.length = 0;
+      this.transparentPool.length = 0;
+      this.debrisPool.length = 0;
+      this.update(0.01);
+    }
+  }
+
+  const particleSystem = new ParticleSystem();
+
+  function createExplosion(position, scale = 1) {
+    const fireCount = Math.floor(22 * scale);
+    for (let i = 0; i < fireCount; i++) {
+      const color = new THREE.Color();
+      color.setHSL(0.05 + Math.random() * 0.1, 1, 0.55);
+      particleSystem.spawn('additive', {
+        position: position.clone().add(new THREE.Vector3(
+          (Math.random() - 0.5) * scale * 1.5,
+          Math.random() * scale * 0.5,
+          (Math.random() - 0.5) * scale * 1.5
+        )),
+        velocity: new THREE.Vector3(
+          (Math.random() - 0.5) * 16 * scale,
+          Math.random() * 11 * scale + 2,
+          (Math.random() - 0.5) * 16 * scale
+        ),
+        scale: 0.3 * scale,
+        color: color,
+        life: 0.6 + Math.random() * 0.4,
+        gravity: -22,
+        shrink: true,
+        fade: true,
+        opacity: 1.0
+      });
+    }
+
+    const smokeCount = Math.floor(28 * scale);
+    for (let i = 0; i < smokeCount; i++) {
+      const color = new THREE.Color();
+      color.setHSL(0, 0, 0.12 + Math.random() * 0.18);
+      particleSystem.spawn('transparent', {
+        position: position.clone(),
+        velocity: new THREE.Vector3(
+          (Math.random() - 0.5) * 9 * scale,
+          Math.random() * 9 * scale + 3,
+          (Math.random() - 0.5) * 9 * scale
+        ),
+        scale: 0.55 * scale,
+        color: color,
+        life: 1.5 + Math.random() * 1.2,
+        gravity: -3,
+        expand: 3.5,
+        fade: true,
+        opacity: 0.75
+      });
+    }
+
+    const debrisCount = Math.floor(16 * scale);
+    for (let i = 0; i < debrisCount; i++) {
+      particleSystem.spawn('debris', {
+        position: position.clone(),
+        velocity: new THREE.Vector3(
+          (Math.random() - 0.5) * 22 * scale,
+          Math.random() * 16 * scale + 5,
+          (Math.random() - 0.5) * 22 * scale
+        ),
+        scale: 0.2,
+        life: 1.6,
+        gravity: -32,
+        rotate: true,
+        fade: false,
+        bounce: true
+      });
+    }
+
+    const splashCount = Math.floor(12 * scale);
+    const sandColor = new THREE.Color(0xd4a878);
+    for (let i = 0; i < splashCount; i++) {
+      const startPos = position.clone();
+      startPos.y = getTerrainHeight(position.x, position.z) + 0.1;
+      particleSystem.spawn('transparent', {
+        position: startPos,
+        velocity: new THREE.Vector3(
+          (Math.random() - 0.5) * 12,
+          Math.random() * 6 + 2,
+          (Math.random() - 0.5) * 12
+        ),
+        scale: 0.2 * scale,
+        color: sandColor,
+        life: 0.8 + Math.random() * 0.5,
+        gravity: -18,
+        fade: true,
+        shrink: true,
+        bounce: true,
+        opacity: 0.8
+      });
+    }
+
+    spawnPointLight(position, 10 * scale, 28 * scale, 0.22);
+    addCameraShake(scale * 0.55);
+  }
+
+  function createMuzzleFlash(position, direction) {
+    const muzzleColor = new THREE.Color(0xffd060);
+    for (let i = 0; i < 10; i++) {
+      const startPos = position.clone().add(direction.clone().multiplyScalar(Math.random() * 0.6));
+      const v = direction.clone().multiplyScalar(9 + Math.random() * 6);
+      v.x += (Math.random() - 0.5) * 4;
+      v.y += (Math.random() - 0.5) * 4;
+      v.z += (Math.random() - 0.5) * 4;
+
+      particleSystem.spawn('additive', {
+        position: startPos,
+        velocity: v,
+        scale: 0.16 + Math.random() * 0.1,
+        color: muzzleColor,
+        life: 0.18,
+        fade: true,
+        shrink: true,
+        opacity: 1.0
+      });
+    }
+
+    const smokeColor = new THREE.Color(0x8a8a8a);
+    for (let i = 0; i < 6; i++) {
+      const v = direction.clone().multiplyScalar(3.5);
+      v.x += (Math.random() - 0.5) * 2.5;
+      v.y += (Math.random() - 0.5) * 2.5 + 1;
+      v.z += (Math.random() - 0.5) * 2.5;
+
+      particleSystem.spawn('transparent', {
+        position: position.clone(),
+        velocity: v,
+        scale: 0.22,
+        color: smokeColor,
+        life: 0.9,
+        fade: true,
+        expand: 2.2,
+        opacity: 0.55
+      });
+    }
+
+    spawnPointLight(position, 6, 18, 0.12);
+  }
+
+  function createDust(position, intensity = 1) {
+    const dustColor = new THREE.Color(0xd4a878);
+    for (let i = 0; i < 2; i++) {
+      const startPos = position.clone();
+      startPos.x += (Math.random() - 0.5) * 2.2;
+      startPos.z += (Math.random() - 0.5) * 2.2;
+      startPos.y += 0.2;
+
+      particleSystem.spawn('transparent', {
+        position: startPos,
+        velocity: new THREE.Vector3(
+          (Math.random() - 0.5) * 2.5 * intensity,
+          Math.random() * 1.6 + 0.5,
+          (Math.random() - 0.5) * 2.5 * intensity
+        ),
+        scale: 0.32,
+        color: dustColor,
+        life: 0.9 + Math.random() * 0.5,
+        fade: true,
+        expand: 2.2,
+        opacity: 0.45
+      });
     }
   }
 
@@ -1431,18 +1713,15 @@
   }
 
   function resetGame() {
-    for (const e of enemies) scene.remove(e.group);
-    enemies.length = 0;
-    for (const s of shells) scene.remove(s.mesh);
-    shells.length = 0;
-    for (const p of particles) {
-      if (p.mesh) {
-        scene.remove(p.mesh);
-        if (p.disposeMat) p.mesh.material.dispose();
-      }
-      if (p.light) scene.remove(p.light);
+    for (const s of shellPool) {
+      s.mesh.visible = false;
+      s.active = false;
     }
-    particles.length = 0;
+    for (const p of lightPool) {
+      p.light.visible = false;
+      p.life = 0;
+    }
+    particleSystem.clear();
 
     player.health = player.maxHealth;
     player.alive = true;
@@ -1578,7 +1857,8 @@
   function update(dt) {
     if (!gameState.started || gameState.over) {
       // Still update particles and camera
-      updateParticles(dt);
+      particleSystem.update(dt);
+      updatePointLights(dt);
       const lookAt = player.group.position.clone();
       lookAt.y += 2;
       camera.lookAt(lookAt);
@@ -1665,7 +1945,7 @@
       const fireDir = new THREE.Vector3(
         mouse.worldX - muzzlePos.x, 0, mouse.worldZ - muzzlePos.z
       ).normalize();
-      createShell(muzzlePos, fireDir, player);
+      spawnShell(muzzlePos, fireDir, player);
       createMuzzleFlash(muzzlePos, fireDir);
       player.fire(now);
       addCameraShake(0.2);
@@ -1732,15 +2012,17 @@
         fireDir.x += (Math.random() - 0.5) * 0.06;
         fireDir.z += (Math.random() - 0.5) * 0.06;
         fireDir.normalize();
-        createShell(muzzlePos, fireDir, e, 60);
+        spawnShell(muzzlePos, fireDir, e, 60);
         createMuzzleFlash(muzzlePos, fireDir);
         e.fire(now);
       }
     }
 
     // Update Shells
-    for (let i = shells.length - 1; i >= 0; i--) {
-      const s = shells[i];
+    for (let i = 0; i < shellPool.length; i++) {
+      const s = shellPool[i];
+      if (!s.active) continue;
+
       s.mesh.position.x += s.velocity.x * dt;
       s.mesh.position.y += s.velocity.y * dt;
       s.mesh.position.z += s.velocity.z * dt;
@@ -1754,7 +2036,7 @@
       // Ground Collision
       const groundY = getTerrainHeight(s.mesh.position.x, s.mesh.position.z);
       if (s.mesh.position.y <= groundY + 0.25) {
-        createExplosion(s.mesh.position.clone(), 0.55);
+        createExplosion(s.mesh.position, 0.55);
         hit = true;
       }
 
@@ -1767,7 +2049,7 @@
             const dy = s.mesh.position.y - (e.group.position.y + 1.5);
             const dz = s.mesh.position.z - e.group.position.z;
             if (dx * dx + dy * dy + dz * dz < 9) {
-              createExplosion(s.mesh.position.clone(), 1.3);
+              createExplosion(s.mesh.position, 1.3);
               showHitMarker();
               const destroyed = e.takeDamage(s.damage);
               if (destroyed) {
@@ -1795,7 +2077,7 @@
           const dy = s.mesh.position.y - (player.group.position.y + 1.5);
           const dz = s.mesh.position.z - player.group.position.z;
           if (dx * dx + dy * dy + dz * dz < 9) {
-            createExplosion(s.mesh.position.clone(), 1.1);
+            createExplosion(s.mesh.position, 1.1);
             const destroyed = player.takeDamage(s.damage);
             showDamage();
             addCameraShake(0.45);
@@ -1812,8 +2094,8 @@
       }
 
       if (hit || s.life <= 0) {
-        scene.remove(s.mesh);
-        shells.splice(i, 1);
+        s.mesh.visible = false;
+        s.active = false;
       }
     }
 
@@ -1857,7 +2139,8 @@
     }
 
     // Update Particles
-    updateParticles(dt);
+    particleSystem.update(dt);
+    updatePointLights(dt);
 
     // Player Update
     player.update(dt);
