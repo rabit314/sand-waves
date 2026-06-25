@@ -663,7 +663,7 @@
   for (let i = 0; i < tPos.count; i++) {
     const x = tPos.getX(i);
     const z = tPos.getZ(i);
-    const h = getTerrainHeight(x, z);
+    const h = getTerrainHeightExact(x, z);
     tPos.setY(i, h);
 
     const t = THREE.MathUtils.clamp((h + 5) / 10, 0, 1);
