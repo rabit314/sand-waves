@@ -1,0 +1,430 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; }
+  body {
+    background: #000;
+    font-family: 'Share Tech Mono', monospace;
+    color: #d4e8b8;
+    user-select: none;
+    cursor: crosshair;
+  }
+  canvas { display: block; }
+
+  #hud {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 10;
+  }
+
+  /* Crosshair */
+  #crosshair {
+    position: absolute;
+    width: 56px; height: 56px;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    opacity: 0.95;
+  }
+  #crosshair::before, #crosshair::after,
+  #crosshair .ch-h, #crosshair .ch-v {
+    content: '';
+    position: absolute;
+    background: rgba(220, 240, 200, 0.85);
+    box-shadow: 0 0 4px rgba(0,0,0,0.5);
+  }
+  #crosshair::before {
+    left: 50%; top: 50%;
+    width: 4px; height: 4px;
+    background: #ff6b3a;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+  }
+  #crosshair .ch-h { left: 0; top: 50%; width: 14px; height: 1px; transform: translateY(-50%); }
+  #crosshair .ch-h.r { left: auto; right: 0; }
+  #crosshair .ch-v { top: 0; left: 50%; width: 1px; height: 14px; transform: translateX(-50%); }
+  #crosshair .ch-v.b { top: auto; bottom: 0; }
+  #crosshair .ring {
+    position: absolute;
+    inset: 6px;
+    border: 1px solid rgba(220, 240, 200, 0.35);
+    border-radius: 50%;
+  }
+
+  /* Top HUD */
+  #topbar {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    padding: 18px 26px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  .panel {
+    background: linear-gradient(180deg, rgba(28, 38, 20, 0.85), rgba(18, 24, 12, 0.85));
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(140, 180, 100, 0.35);
+    border-radius: 4px;
+    padding: 12px 18px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06);
+    position: relative;
+  }
+  .panel::before {
+    content: '';
+    position: absolute;
+    top: -1px; left: -1px;
+    width: 8px; height: 8px;
+    border-top: 2px solid #a8d468;
+    border-left: 2px solid #a8d468;
+  }
+  .panel::after {
+    content: '';
+    position: absolute;
+    bottom: -1px; right: -1px;
+    width: 8px; height: 8px;
+    border-bottom: 2px solid #a8d468;
+    border-right: 2px solid #a8d468;
+  }
+
+  .label {
+    font-size: 10px;
+    letter-spacing: 0.25em;
+    color: #8aa86a;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+
+  .value {
+    font-family: 'Black Ops One', sans-serif;
+    font-size: 30px;
+    color: #e8f4d4;
+    text-shadow: 0 0 12px rgba(140, 200, 80, 0.4);
+    line-height: 1;
+  }
+
+  #healthPanel { min-width: 230px; }
+  .bar-container {
+    width: 100%;
+    height: 10px;
+    background: rgba(0,0,0,0.55);
+    border: 1px solid rgba(140, 180, 100, 0.4);
+    border-radius: 2px;
+    margin-top: 8px;
+    overflow: hidden;
+    position: relative;
+  }
+  .bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #6b8b3a, #b8e078);
+    transition: width 0.3s ease;
+    box-shadow: 0 0 10px rgba(184, 224, 120, 0.5);
+    position: relative;
+  }
+  .bar-fill::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+      90deg,
+      transparent 0,
+      transparent 8px,
+      rgba(0,0,0,0.2) 8px,
+      rgba(0,0,0,0.2) 10px
+    );
+  }
+  .bar-fill.low { background: linear-gradient(90deg, #c84a2a, #ff8a4a); }
+
+  #wavePanel { text-align: center; min-width: 140px; }
+  #scorePanel { min-width: 180px; text-align: right; }
+
+  .sub-info {
+    font-size: 11px;
+    color: #8aa86a;
+    margin-top: 5px;
+    letter-spacing: 0.1em;
+  }
+  .sub-info span { color: #d4e8b8; }
+
+  /* Minimap */
+  #minimap-wrap {
+    position: absolute;
+    bottom: 22px;
+    right: 22px;
+    width: 180px;
+    height: 180px;
+  }
+  #minimap {
+    width: 100%;
+    height: 100%;
+    background: rgba(20, 30, 15, 0.75);
+    border: 1px solid rgba(140, 180, 100, 0.45);
+    border-radius: 50%;
+    overflow: hidden;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  }
+  #minimapCanvas { width: 100%; height: 100%; display: block; }
+  #minimap-label {
+    position: absolute;
+    top: -18px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 9px;
+    letter-spacing: 0.3em;
+    color: #8aa86a;
+  }
+
+  /* Corner decorations */
+  .corner {
+    position: absolute;
+    width: 24px; height: 24px;
+    border-color: rgba(168, 212, 104, 0.5);
+    border-style: solid;
+    border-width: 0;
+  }
+  .corner.tl { top: 10px; left: 10px; border-top-width: 1px; border-left-width: 1px; }
+  .corner.tr { top: 10px; right: 10px; border-top-width: 1px; border-right-width: 1px; }
+  .corner.bl { bottom: 10px; left: 10px; border-bottom-width: 1px; border-left-width: 1px; }
+  .corner.br { bottom: 10px; right: 10px; border-bottom-width: 1px; border-right-width: 1px; }
+
+  /* Wave announcement */
+  #waveAnnounce {
+    position: absolute;
+    top: 32%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-family: 'Black Ops One', sans-serif;
+    font-size: 64px;
+    color: #e8c898;
+    text-shadow: 0 0 40px rgba(212, 168, 120, 0.6), 0 4px 20px rgba(0,0,0,0.6);
+    letter-spacing: 0.15em;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.5s, transform 0.5s;
+    text-align: center;
+  }
+  #waveAnnounce .sub {
+    display: block;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 14px;
+    color: #a8855a;
+    margin-top: 8px;
+    letter-spacing: 0.4em;
+  }
+  #waveAnnounce.show {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+
+  /* Damage vignette */
+  #damageVignette {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    box-shadow: inset 0 0 120px 50px rgba(200, 50, 20, 0.7);
+    opacity: 0;
+    transition: opacity 0.4s;
+  }
+
+  /* Hit marker */
+  #hitMarker {
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 30px; height: 30px;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.1s;
+  }
+  #hitMarker::before, #hitMarker::after {
+    content: '';
+    position: absolute;
+    background: #ffcc44;
+    box-shadow: 0 0 6px #ffaa00;
+  }
+  #hitMarker::before { top: 0; left: 50%; width: 2px; height: 10px; transform: translateX(-50%); }
+  #hitMarker::after { bottom: 0; left: 50%; width: 2px; height: 10px; transform: translateX(-50%); }
+  #hitMarker .hm-h1, #hitMarker .hm-h2 {
+    position: absolute;
+    background: #ffcc44;
+    box-shadow: 0 0 6px #ffaa00;
+    height: 2px; width: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+  #hitMarker .hm-h1 { left: 0; }
+  #hitMarker .hm-h2 { right: 0; }
+
+  /* Start / Game Over screens */
+  .overlay {
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(ellipse at center, rgba(80, 55, 30, 0.4), rgba(15, 12, 8, 0.95)),
+      repeating-linear-gradient(0deg, transparent 0, transparent 3px, rgba(0,0,0,0.15) 3px, rgba(0,0,0,0.15) 4px);
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #e8d4a8;
+    pointer-events: all;
+    text-align: center;
+  }
+  .overlay::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 50% 60%, rgba(212, 168, 120, 0.15), transparent 60%);
+    pointer-events: none;
+  }
+
+  .overlay h1 {
+    font-family: 'Black Ops One', sans-serif;
+    font-size: 88px;
+    letter-spacing: 0.1em;
+    color: #e8c898;
+    text-shadow: 0 4px 20px rgba(0,0,0,0.6), 0 0 60px rgba(212, 168, 120, 0.4);
+    margin-bottom: 6px;
+    position: relative;
+  }
+  .overlay .subtitle {
+    font-size: 13px;
+    letter-spacing: 0.5em;
+    color: #a8855a;
+    margin-bottom: 48px;
+    padding-left: 0.5em;
+  }
+
+  .controls-list {
+    display: grid;
+    grid-template-columns: auto auto;
+    gap: 10px 28px;
+    margin-bottom: 44px;
+    font-size: 14px;
+    align-items: center;
+  }
+  .controls-list .key {
+    color: #e8c898;
+    font-family: 'Black Ops One', sans-serif;
+    background: rgba(40, 30, 18, 0.7);
+    padding: 6px 14px;
+    border: 1px solid rgba(168, 133, 90, 0.5);
+    border-radius: 3px;
+    text-align: center;
+    min-width: 90px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.08);
+    font-size: 13px;
+    letter-spacing: 0.1em;
+  }
+  .controls-list .desc {
+    color: #c2a878;
+    text-align: left;
+    letter-spacing: 0.05em;
+  }
+
+  .btn {
+    font-family: 'Black Ops One', sans-serif;
+    font-size: 22px;
+    letter-spacing: 0.2em;
+    background: linear-gradient(180deg, #a8753a, #6a4520);
+    color: #fff4d8;
+    border: 1px solid #c89558;
+    padding: 18px 56px;
+    border-radius: 3px;
+    cursor: pointer;
+    text-transform: uppercase;
+    pointer-events: all;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.15), inset 0 -2px 6px rgba(0,0,0,0.3);
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+  .btn::before {
+    content: '';
+    position: absolute;
+    top: 0; left: -100%;
+    width: 100%; height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,240,200,0.3), transparent);
+    transition: left 0.6s;
+  }
+  .btn:hover {
+    background: linear-gradient(180deg, #c8893f, #825225);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.2), inset 0 -2px 6px rgba(0,0,0,0.3);
+  }
+  .btn:hover::before { left: 100%; }
+  .btn:active { transform: translateY(0); }
+
+  #gameOverScreen { display: none; }
+  #pauseScreen { display: none; }
+  #pauseScreen h1 { font-size: 72px; }
+  #pauseScreen .subtitle { margin-bottom: 32px; }
+  #gameOverScreen h1 { color: #ff6b3a; text-shadow: 0 4px 20px rgba(0,0,0,0.6), 0 0 60px rgba(255, 100, 50, 0.4); }
+  #gameOverScreen .stats {
+    margin: 16px 0 40px;
+    text-align: center;
+  }
+  #gameOverScreen .stats > div {
+    margin: 6px 0;
+    font-size: 16px;
+    color: #a8855a;
+    letter-spacing: 0.1em;
+  }
+  #gameOverScreen .stats .stat-value {
+    color: #e8c898;
+    font-family: 'Black Ops One', sans-serif;
+    font-size: 48px;
+    text-shadow: 0 0 20px rgba(212, 168, 120, 0.4);
+    display: block;
+    margin: 4px 0 16px;
+  }
+
+  /* Score pulse */
+  @keyframes scorePulse {
+    0% { transform: scale(1); color: #e8f4d4; }
+    50% { transform: scale(1.18); color: #ffd47a; text-shadow: 0 0 20px rgba(255, 212, 122, 0.7); }
+    100% { transform: scale(1); color: #e8f4d4; }
+  }
+  .pulse { animation: scorePulse 0.35s ease; }
+
+  /* Bottom-left status */
+  #statusPanel {
+    position: absolute;
+    bottom: 22px;
+    left: 22px;
+    max-width: 280px;
+  }
+  .status-line {
+    font-size: 11px;
+    color: #8aa86a;
+    letter-spacing: 0.15em;
+    margin: 4px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .status-line .dot {
+    width: 6px; height: 6px;
+    background: #a8d468;
+    border-radius: 50%;
+    box-shadow: 0 0 6px #a8d468;
+    animation: blink 1.5s infinite;
+  }
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+  .status-line .text { color: #d4e8b8; }
+
+  @media (max-width: 720px) {
+    .overlay h1 { font-size: 52px; }
+    .controls-list { font-size: 12px; gap: 8px 16px; }
+    #topbar { padding: 10px 14px; }
+    .panel { padding: 8px 12px; }
+    .value { font-size: 22px; }
+    #minimap-wrap { width: 130px; height: 130px; bottom: 14px; right: 14px; }
+    #statusPanel { display: none; }
+  }
