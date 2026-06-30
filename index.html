@@ -1908,37 +1908,44 @@
   const minimapCanvas = document.getElementById('minimapCanvas');
   const minimapCtx = minimapCanvas.getContext('2d');
   const minimapRange = 130;
+  let minimapBg = null;
 
   function updateMinimap() {
     const w = minimapCanvas.width;
     const h = minimapCanvas.height;
-    minimapCtx.clearRect(0, 0, w, h);
 
-    // Background
-    const grad = minimapCtx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
-    grad.addColorStop(0, 'rgba(212, 168, 120, 0.35)');
-    grad.addColorStop(0.7, 'rgba(120, 90, 60, 0.5)');
-    grad.addColorStop(1, 'rgba(40, 30, 18, 0.7)');
-    minimapCtx.fillStyle = grad;
-    minimapCtx.beginPath();
-    minimapCtx.arc(w / 2, h / 2, w / 2 - 1, 0, Math.PI * 2);
-    minimapCtx.fill();
+    if (!minimapBg) {
+      minimapBg = document.createElement('canvas');
+      minimapBg.width = w;
+      minimapBg.height = h;
+      const bCtx = minimapBg.getContext('2d');
 
-    // Grid
-    minimapCtx.strokeStyle = 'rgba(168, 212, 104, 0.18)';
-    minimapCtx.lineWidth = 1;
-    minimapCtx.beginPath();
-    minimapCtx.moveTo(w / 2, 0); minimapCtx.lineTo(w / 2, h);
-    minimapCtx.moveTo(0, h / 2); minimapCtx.lineTo(w, h / 2);
-    minimapCtx.stroke();
+      const grad = bCtx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
+      grad.addColorStop(0, 'rgba(212, 168, 120, 0.35)');
+      grad.addColorStop(0.7, 'rgba(120, 90, 60, 0.5)');
+      grad.addColorStop(1, 'rgba(40, 30, 18, 0.7)');
+      bCtx.fillStyle = grad;
+      bCtx.beginPath();
+      bCtx.arc(w / 2, h / 2, w / 2 - 1, 0, Math.PI * 2);
+      bCtx.fill();
 
-    // Concentric Circles
-    minimapCtx.strokeStyle = 'rgba(168, 212, 104, 0.12)';
-    for (let r = 30; r < w / 2; r += 30) {
-      minimapCtx.beginPath();
-      minimapCtx.arc(w / 2, h / 2, r, 0, Math.PI * 2);
-      minimapCtx.stroke();
+      bCtx.strokeStyle = 'rgba(168, 212, 104, 0.18)';
+      bCtx.lineWidth = 1;
+      bCtx.beginPath();
+      bCtx.moveTo(w / 2, 0); bCtx.lineTo(w / 2, h);
+      bCtx.moveTo(0, h / 2); bCtx.lineTo(w, h / 2);
+      bCtx.stroke();
+
+      bCtx.strokeStyle = 'rgba(168, 212, 104, 0.12)';
+      for (let r = 30; r < w / 2; r += 30) {
+        bCtx.beginPath();
+        bCtx.arc(w / 2, h / 2, r, 0, Math.PI * 2);
+        bCtx.stroke();
+      }
     }
+
+    minimapCtx.clearRect(0, 0, w, h);
+    minimapCtx.drawImage(minimapBg, 0, 0);
 
     // Enemies
     for (const e of enemies) {
@@ -2100,12 +2107,19 @@
     // PlayerFiring
     const reloadEl = document.getElementById('reloadStatus');
     if (player.canFire(now)) {
-      reloadEl.textContent = 'READY';
-      reloadEl.style.color = '#a8d468';
+      if (gameState.lastReload !== 'READY') {
+        gameState.lastReload = 'READY';
+        reloadEl.textContent = 'READY';
+        reloadEl.style.color = '#a8d468';
+      }
     } else {
       const r = (now - player.lastFireTime) / player.fireRate;
-      reloadEl.textContent = `RELOADING ${Math.floor((1 - r) * 100)}%`;
-      reloadEl.style.color = '#c8854a';
+      const text = `RELOADING ${Math.floor((1 - r) * 100)}%`;
+      if (gameState.lastReload !== text) {
+        gameState.lastReload = text;
+        reloadEl.textContent = text;
+        reloadEl.style.color = '#c8854a';
+      }
     }
 
     const aimDist2D = Math.sqrt(aimDx * aimDx + aimDz * aimDz);
@@ -2310,14 +2324,21 @@
     }
 
     // Update HUD
-    document.getElementById('healthValue').textContent = Math.max(0, Math.floor(player.health));
-    const hpPct = (player.health / player.maxHealth) * 100;
-    const hb = document.getElementById('healthBar');
-    hb.style.width = hpPct + '%';
-    if (hpPct < 30) hb.classList.add('low');
-    else hb.classList.remove('low');
+    const hpVal = Math.max(0, Math.floor(player.health));
+    if (gameState.lastHp !== hpVal) {
+      gameState.lastHp = hpVal;
+      document.getElementById('healthValue').textContent = hpVal;
+      const hpPct = (player.health / player.maxHealth) * 100;
+      const hb = document.getElementById('healthBar');
+      hb.style.width = hpPct + '%';
+      if (hpPct < 30) hb.classList.add('low');
+      else hb.classList.remove('low');
+    }
 
-    document.getElementById('enemyCount').textContent = aliveEnemyCount;
+    if (gameState.lastEnemyCount !== aliveEnemyCount) {
+      gameState.lastEnemyCount = aliveEnemyCount;
+      document.getElementById('enemyCount').textContent = aliveEnemyCount;
+    }
 
     // Combat Log Timer
     if (combatLogTimer > 0) {
@@ -2333,11 +2354,14 @@
     player.update(dt);
 
     // Camera Follow
+    if (!camera.userData.smoothPos) camera.userData.smoothPos = player.group.position.clone();
+    camera.userData.smoothPos.lerp(player.group.position, Math.min(1, dt * 10));
+
     const idealOffset = new THREE.Vector3(0, 10, -14);
     idealOffset.applyAxisAngle(new THREE.Vector3(0, 1, 0), player.group.rotation.y);
-    idealOffset.add(player.group.position);
+    idealOffset.add(camera.userData.smoothPos);
 
-    const lookAt = player.group.position.clone();
+    const lookAt = camera.userData.smoothPos.clone();
     lookAt.y += 2;
 
     if (!camera.userData.truePos) camera.userData.truePos = camera.position.clone();
