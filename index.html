@@ -641,8 +641,8 @@
   }
 
   function getTerrainHeight(x, z) {
-    const gx = Math.round((x + 200) / 400 * terrainGridSize);
-    const gz = Math.round((z + 200) / 400 * terrainGridSize);
+    const gx = Math.floor((x + 200) / 400 * terrainGridSize);
+    const gz = Math.floor((z + 200) / 400 * terrainGridSize);
     const cx = Math.max(0, Math.min(terrainGridSize - 1, gx));
     const cz = Math.max(0, Math.min(terrainGridSize - 1, gz));
     return terrainHeightData[cx][cz];
@@ -890,7 +890,6 @@
 
   const sharedRockMat = new THREE.MeshLambertMaterial({
     vertexColors: true,
-    roughness: 0.95,
     flatShading: true
   });
   const mergedRocksMesh = new THREE.Mesh(mergedRocksGeo, sharedRockMat);
@@ -954,14 +953,13 @@
     }
 
     build(color) {
-      const bodyMat = new THREE.MeshLambertMaterial({ color, roughness: 0.78, metalness: 0.15 });
-      const darkMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a, roughness: 0.9, metalness: 0.3 });
+      const bodyMat = new THREE.MeshLambertMaterial({ color });
+      const darkMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
       const barrelMat = new THREE.MeshLambertMaterial({
-        color: new THREE.Color(color).multiplyScalar(0.55),
-        roughness: 0.5, metalness: 0.55
+        color: new THREE.Color(color).multiplyScalar(0.55)
       });
-      const detailMat = new THREE.MeshLambertMaterial({ color: 0x222222, roughness: 0.8 });
-      const wheelMat = new THREE.MeshLambertMaterial({ color: 0x2a2a2a, roughness: 0.7, metalness: 0.4 });
+      const detailMat = new THREE.MeshLambertMaterial({ color: 0x222222 });
+      const wheelMat = new THREE.MeshLambertMaterial({ color: 0x2a2a2a });
       const emissiveMat = new THREE.MeshLambertMaterial({ color: 0xff3a3a, emissive: 0xff3a3a, emissiveIntensity: 0.8 });
 
       const hullMaterials = [bodyMat, darkMat, detailMat, wheelMat];
@@ -1292,7 +1290,6 @@
 
       this.debrisMat = new THREE.MeshLambertMaterial({
         color: 0x242424,
-        roughness: 0.8,
         flatShading: true
       });
 
@@ -1845,9 +1842,7 @@
     minimapCtx.moveTo(0, 0);
     minimapCtx.arc(0, 0, 28, -Math.PI / 2 - 0.5, -Math.PI / 2 + 0.5);
     minimapCtx.closePath();
-    minimapCtx.rotate(-pangle);
     minimapCtx.fill();
-    minimapCtx.rotate(pangle);
 
     // Triangle
     minimapCtx.fillStyle = '#a8d468';
@@ -1978,8 +1973,13 @@
 
     if (mouse.down && player.canFire(now)) {
       const muzzlePos = player.getMuzzleWorldPosition();
-      const fireDir = raycaster.ray.direction.clone();
-      fireDir.y = THREE.MathUtils.clamp(fireDir.y, -0.3, 0.45);
+      const fireDir = new THREE.Vector3(
+        aimTarget.x - muzzlePos.x,
+        0,
+        aimTarget.z - muzzlePos.z
+      );
+      const aimDist = fireDir.length();
+      fireDir.y = aimDist * 0.06;
       fireDir.normalize();
       spawnShell(muzzlePos, fireDir, player);
       createMuzzleFlash(muzzlePos, fireDir);
@@ -2035,7 +2035,7 @@
       const tWorldY = e.group.rotation.y + e.turretGroup.rotation.y;
       let tDiff = desiredTurret - tWorldY;
       tDiff = Math.atan2(Math.sin(tDiff), Math.cos(tDiff));
-      const tTurn = Math.sign(tDiff) * Math.min(Math.abs(tDiff), e.turretTurnSpeed * 0.75 * dt);
+      const tTurn = Math.sign(tDiff) * Math.min(Math.abs(tDiff), e.turretTurnSpeed * dt);
       e.turretGroup.rotation.y += tTurn;
 
       // Firing
@@ -2092,7 +2092,6 @@
               const destroyed = e.takeDamage(s.damage);
               if (destroyed) {
                 createExplosion(e.group.position.clone().add(new THREE.Vector3(0, 1, 0)), 2.6);
-                scene.remove(e.group);
                 gameState.kills++;
                 gameState.score += 100;
                 const sv = document.getElementById('scoreValue');
