@@ -369,6 +369,9 @@
   .btn:active { transform: translateY(0); }
 
   #gameOverScreen { display: none; }
+  #pauseScreen { display: none; }
+  #pauseScreen h1 { font-size: 72px; }
+  #pauseScreen .subtitle { margin-bottom: 32px; }
   #gameOverScreen h1 { color: #ff6b3a; text-shadow: 0 4px 20px rgba(0,0,0,0.6), 0 0 60px rgba(255, 100, 50, 0.4); }
   #gameOverScreen .stats {
     margin: 16px 0 40px;
@@ -514,6 +517,12 @@
       <div>Hostiles Eliminated: <span id="finalKills">0</span></div>
     </div>
     <button class="btn" id="restartBtn">Redeploy</button>
+  </div>
+
+  <div id="pauseScreen" class="overlay">
+    <h1>PAUSED</h1>
+    <div class="subtitle">OPERATION SUSPENDED</div>
+    <button class="btn" id="resumeBtn">Resume</button>
   </div>
 
   <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
@@ -1265,6 +1274,76 @@
     }
   }
 
+  // ============ Audio System ============
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const audio = {
+    playTone(freq, type, duration, vol, detune=0) {
+      if(audioCtx.state === 'suspended') audioCtx.resume();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+      if(detune) osc.frequency.exponentialRampToValueAtTime(detune, audioCtx.currentTime + duration);
+      gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + duration);
+    },
+    noise(duration, vol) {
+      if(audioCtx.state === 'suspended') audioCtx.resume();
+      const bufferSize = audioCtx.sampleRate * duration;
+      const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+      const noiseSource = audioCtx.createBufferSource();
+      noiseSource.buffer = buffer;
+      const gain = audioCtx.createGain();
+      
+      // Lowpass filter for explosion crunch
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 1000;
+      
+      gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+      noiseSource.connect(filter);
+      filter.connect(gain);
+      gain.connect(audioCtx.destination);
+      noiseSource.start();
+    },
+    shoot() { this.playTone(150, 'square', 0.2, 0.05, 40); this.noise(0.2, 0.1); },
+    hit() { this.playTone(80, 'sawtooth', 0.15, 0.15, 20); },
+    explosion() { this.noise(0.8, 0.5); this.playTone(60, 'square', 0.6, 0.3, 10); },
+    alert() { this.playTone(400, 'sine', 0.1, 0.1, 600); },
+    bgm: null,
+    startBGM() {
+      if (this.bgm) return;
+      if(audioCtx.state === 'suspended') audioCtx.resume();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(55, audioCtx.currentTime);
+      
+      const lfo = audioCtx.createOscillator();
+      lfo.type = 'sine';
+      lfo.frequency.value = 0.25;
+      const lfoGain = audioCtx.createGain();
+      lfoGain.gain.value = 5;
+      lfo.connect(lfoGain);
+      lfoGain.connect(osc.frequency);
+      lfo.start();
+      
+      gain.gain.value = 0.08;
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      this.bgm = { osc, lfo };
+    }
+  };
+
+  // ============ Audio Event Hooks ============
   // ============ Particle System ============
   class ParticleSystem {
     constructor() {
@@ -1530,19 +1609,8 @@
       particleSystem.spawn('additive', {
         position: tempPos,
         velocity: tempVel,
-        color: tempColor,
-        position: position.clone().add(new THREE.Vector3(
-          (Math.random() - 0.5) * scale * 1.5,
-          Math.random() * scale * 0.5,
-          (Math.random() - 0.5) * scale * 1.5
-        )),
-        velocity: new THREE.Vector3(
-          (Math.random() - 0.5) * 16 * scale,
-          Math.random() * 11 * scale + 2,
-          (Math.random() - 0.5) * 16 * scale
-        ),
         scale: 0.3 * scale,
-        color: color,
+        color: tempColor,
         life: 0.6 + Math.random() * 0.4,
         gravity: -22,
         shrink: true,
@@ -1695,6 +1763,11 @@
 
   window.addEventListener('keydown', e => {
     keys[e.code] = true;
+    if (e.code === 'Escape' && gameState.started && !gameState.over) {
+      e.preventDefault();
+      togglePause();
+      return;
+    }
     if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ShiftLeft', 'ShiftRight'].includes(e.code)) {
       e.preventDefault();
     }
@@ -1741,6 +1814,7 @@
   const gameState = {
     started: false,
     over: false,
+    paused: false,
     score: 0,
     wave: 0,
     kills: 0,
@@ -1751,6 +1825,12 @@
     spawning: false,
     maxAlive: 5
   };
+
+  function togglePause() {
+    gameState.paused = !gameState.paused;
+    document.getElementById('pauseScreen').style.display = gameState.paused ? 'flex' : 'none';
+    if (!gameState.paused) clock.getDelta();
+  }
 
   function startWave(n) {
     gameState.wave = n;
@@ -1821,6 +1901,7 @@
     document.getElementById('scoreValue').textContent = '0';
     setCombatLog('REDEPLOYING...');
     startWave(1);
+    audio.startBGM();
   }
 
   // ============ Minimap ============
@@ -1922,14 +2003,19 @@
   document.getElementById('startBtn').addEventListener('click', () => {
     document.getElementById('startScreen').style.display = 'none';
     gameState.started = true;
+    audio.startBGM();
     const initOffset = new THREE.Vector3(0, 10, -14);
     initOffset.applyAxisAngle(new THREE.Vector3(0, 1, 0), 0);
     initOffset.add(player.group.position);
     camera.position.copy(initOffset);
     startWave(1);
+    audio.startBGM();
   });
 
   document.getElementById('restartBtn').addEventListener('click', resetGame);
+  document.getElementById('resumeBtn').addEventListener('click', () => {
+    if (gameState.paused) togglePause();
+  });
 
   // ============ Main Loop ============
   const clock = new THREE.Clock();
@@ -1946,6 +2032,8 @@
       camera.lookAt(lookAt);
       return;
     }
+
+    if (gameState.paused) return;
 
     const now = performance.now() / 1000;
 
@@ -2036,6 +2124,7 @@
       fireDir.normalize();
       spawnShell(muzzlePos, fireDir, player);
       createMuzzleFlash(muzzlePos, fireDir);
+      audio.shoot();
       player.fire(now);
       addCameraShake(0.08);
       setCombatLog('CANNON ENGAGED');
@@ -2108,6 +2197,7 @@
         fireDir.normalize();
         spawnShell(muzzlePos, fireDir, e, 60);
         createMuzzleFlash(muzzlePos, fireDir);
+      audio.shoot();
         e.fire(now);
       }
     }
@@ -2145,10 +2235,12 @@
             const dz = s.mesh.position.z - e.group.position.z;
             if (dx * dx + dy * dy + dz * dz < 9) {
               createExplosion(s.mesh.position, 1.3);
+              audio.hit();
               showHitMarker();
               const destroyed = e.takeDamage(s.damage);
               if (destroyed) {
                 createExplosion(e.group.position.clone().add(new THREE.Vector3(0, 1, 0)), 2.6);
+                audio.explosion();
                 gameState.kills++;
                 gameState.score += 100;
                 const sv = document.getElementById('scoreValue');
@@ -2172,6 +2264,7 @@
           const dz = s.mesh.position.z - player.group.position.z;
           if (dx * dx + dy * dy + dz * dz < 9) {
             createExplosion(s.mesh.position, 1.1);
+            audio.hit();
             const destroyed = player.takeDamage(s.damage);
             showDamage();
             addCameraShake(0.2);
@@ -2179,6 +2272,7 @@
             combatLogTimer = 2.0;
             if (destroyed) {
               createExplosion(player.group.position.clone().add(new THREE.Vector3(0, 1, 0)), 3.2);
+              audio.explosion();
               player.group.visible = false;
               gameOver();
             }
@@ -2253,10 +2347,10 @@
 
     // Camera Shake
     if (cameraShake > 0) {
-      camera.position.x += (Math.random() - 0.5) * cameraShake;
-      camera.position.y += (Math.random() - 0.5) * cameraShake;
-      camera.position.z += (Math.random() - 0.5) * cameraShake;
-      cameraShake = Math.max(0, cameraShake - dt * 2.5);
+      camera.position.x += (Math.random() - 0.5) * cameraShake * 0.4;
+      camera.position.y += (Math.random() - 0.5) * cameraShake * 0.4;
+      camera.position.z += (Math.random() - 0.5) * cameraShake * 0.4;
+      cameraShake = Math.max(0, cameraShake - dt * 4.0);
     }
     
     camera.lookAt(lookAt);
