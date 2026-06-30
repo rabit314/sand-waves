@@ -155,6 +155,15 @@
       return pos;
     }
 
+    // Improvement: Get physical 3D direction the barrel is pointing
+    getMuzzleWorldDirection() {
+      const dir = new THREE.Vector3(0, 0, 1);
+      const quat = new THREE.Quaternion();
+      this.muzzlePoint.getWorldQuaternion(quat);
+      dir.applyQuaternion(quat);
+      return dir.normalize();
+    }
+
     getBodyDirection() {
       const dir = new THREE.Vector3(0, 0, 1);
       const quat = new THREE.Quaternion();

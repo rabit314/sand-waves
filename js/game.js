@@ -200,14 +200,7 @@
 
     if (mouse.down && player.canFire(now)) {
       const muzzlePos = player.getMuzzleWorldPosition();
-      const fireDir = new THREE.Vector3(
-        aimTarget.x - muzzlePos.x,
-        0,
-        aimTarget.z - muzzlePos.z
-      );
-      const aimDist = fireDir.length();
-      fireDir.y = aimDist * aimDist * 0.0024;
-      fireDir.normalize();
+      const fireDir = player.getMuzzleWorldDirection();
       spawnShell(muzzlePos, fireDir, player);
       createMuzzleFlash(muzzlePos, fireDir);
       audio.shoot();
@@ -270,14 +263,7 @@
       // Firing
       if (distToPlayer < 90 && Math.abs(tDiff) < 0.18 && e.canFire(now)) {
         const muzzlePos = e.getMuzzleWorldPosition();
-        const fireDir = new THREE.Vector3(
-          player.group.position.x - muzzlePos.x,
-          0,
-          player.group.position.z - muzzlePos.z
-        );
-        const eAimDist = fireDir.length();
-        fireDir.y = (player.group.position.y + 1.5) - muzzlePos.y + eAimDist * eAimDist * 0.0048;
-        fireDir.normalize();
+        const fireDir = e.getMuzzleWorldDirection();
         fireDir.x += (Math.random() - 0.5) * 0.06;
         fireDir.z += (Math.random() - 0.5) * 0.06;
         fireDir.normalize();
